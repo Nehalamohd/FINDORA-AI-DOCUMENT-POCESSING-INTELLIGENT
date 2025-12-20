@@ -1,0 +1,6 @@
+ai_service:
+  build: ./findora_ai_service
+  ports:
+    - "8001:8000"
+  depends_on:
+    - postgres
