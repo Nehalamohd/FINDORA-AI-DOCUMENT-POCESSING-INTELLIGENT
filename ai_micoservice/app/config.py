@@ -10,3 +10,4 @@ DB_CONFIG = {
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

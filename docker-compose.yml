@@ -11,12 +11,58 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U findora -d findora_db" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:latest
     container_name: redis
     ports:
       - "6379:6379"
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: ./ai_micoservice
+    container_name: findora_api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=postgres
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ai_micoservice/app:/app/app
+      - temp_data:/tmp
+
+  worker:
+    build: ./ai_micoservice
+    container_name: findora_worker
+    command: celery -A app.celery_app worker --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_HOST=postgres
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./ai_micoservice/app:/app/app
+      - temp_data:/tmp
 
 volumes:
   postgres_data:
+  temp_data:
