@@ -1,13 +1,24 @@
 -- Enable vector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Users
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    email TEXT UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Flows (Projects/Pipelines)
 -- This allows you to group documents (e.g., "Software Engineer Hiring", "Q1 Reports")
 CREATE TABLE IF NOT EXISTS flows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 
 -- Documents
 -- Added 'flow_id' to organize files, and 'status' for async Celery tracking

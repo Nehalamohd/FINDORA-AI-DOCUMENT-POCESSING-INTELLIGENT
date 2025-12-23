@@ -1,7 +1,7 @@
 from app.embedding import embed
 from app.database import get_conn
 
-def retrieve_chunks(query: str, top_k=5):
+def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
     """
     Hybrid Search: Semantic (pgvector) + Keyword (BM25/FTS)
     Uses a simple weighted score.
@@ -9,17 +9,23 @@ def retrieve_chunks(query: str, top_k=5):
     q_emb = embed([query])[0]
     
     # SQL for Hybrid Search using Postgres Full Text Search and pgvector
+    # Join with documents to filter by flow_id
     sql = """
     WITH semantic_search AS (
-        SELECT chunk_id, 1 - (embedding <=> %s::vector) AS score
-        FROM embeddings
-        ORDER BY embedding <=> %s::vector
+        SELECT e.chunk_id, 1 - (e.embedding <=> %s::vector) AS score
+        FROM embeddings e
+        JOIN chunks c ON e.chunk_id = c.id
+        JOIN documents d ON c.document_id = d.id
+        WHERE d.flow_id = %s::uuid OR %s::uuid IS NULL
+        ORDER BY e.embedding <=> %s::vector
         LIMIT %s
     ),
     keyword_search AS (
-        SELECT id as chunk_id, ts_rank_cd(tsv, plainto_tsquery('english', %s)) AS score
-        FROM chunks
-        WHERE tsv @@ plainto_tsquery('english', %s)
+        SELECT c.id as chunk_id, ts_rank_cd(c.tsv, plainto_tsquery('english', %s)) AS score
+        FROM chunks c
+        JOIN documents d ON c.document_id = d.id
+        WHERE (c.tsv @@ plainto_tsquery('english', %s)) 
+          AND (d.flow_id = %s::uuid OR %s::uuid IS NULL)
         ORDER BY score DESC
         LIMIT %s
     )
@@ -35,7 +41,13 @@ def retrieve_chunks(query: str, top_k=5):
     
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, (q_emb, q_emb, top_k * 2, query, query, top_k * 2, top_k))
+            # We pass flow_id multiple times for the OR logic
+            params = (
+                q_emb, flow_id, flow_id, q_emb, top_k * 2, # semantic
+                query, query, flow_id, flow_id, top_k * 2, # keyword
+                top_k # final limit
+            )
+            cur.execute(sql, params)
             results = cur.fetchall()
             return [r["content"] for r in results]
 

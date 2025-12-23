@@ -17,12 +17,12 @@ def publish_update(task_id: str, status: str, message: str = "", filename: str =
     redis_client.publish("task_updates", json.dumps(data))
 
 @celery_app.task(bind=True, name="process_pdf")
-def process_pdf_task(self, file_path: str, filename: str):
+def process_pdf_task(self, file_path: str, filename: str, flow_id: str = None):
     task_id = self.request.id
     try:
         publish_update(task_id, "processing", "Starting PDF analysis...", filename)
         
-        doc_id = ingest_pdf(file_path, filename, task_id=task_id)
+        doc_id = ingest_pdf(file_path, filename, task_id=task_id, flow_id=flow_id)
         
         publish_update(task_id, "completed", "PDF processing successful.", filename)
         return {"status": "success", "document_id": doc_id, "filename": filename, "task_id": task_id}

@@ -7,11 +7,39 @@ def update_database():
     
     print("Checking database schema...")
     
-    # 0. Create 'flows' table
+    # 0. Create 'users' table
+    cur.execute("SELECT table_name FROM information_schema.tables WHERE table_name = 'users';")
+    if not cur.fetchone():
+        print("Creating 'users' table...")
+        cur.execute("""
+            CREATE TABLE users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                email TEXT UNIQUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+
+    # 1. Create 'flows' table
     cur.execute("SELECT table_name FROM information_schema.tables WHERE table_name = 'flows';")
     if not cur.fetchone():
         print("Creating 'flows' table...")
-        cur.execute("CREATE TABLE flows (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+        cur.execute("""
+            CREATE TABLE flows (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(), 
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL, 
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+    else:
+        # Add user_id to flows if it doesn't exist
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'flows';")
+        flow_cols = [c[0] for c in cur.fetchall()]
+        if 'user_id' not in flow_cols:
+            print("Adding 'user_id' to 'flows'...")
+            cur.execute("ALTER TABLE flows ADD COLUMN user_id UUID REFERENCES users(id) ON DELETE CASCADE;")
 
     # 1. Update 'documents' table
     cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'documents';")
@@ -25,11 +53,17 @@ def update_database():
         cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_size INTEGER;")
         cur.execute("ALTER TABLE documents ADD COLUMN IF NOT EXISTS flow_id UUID REFERENCES flows(id) ON DELETE CASCADE;")
     
-    # Check sessions/messages
     cur.execute("SELECT table_name FROM information_schema.tables WHERE table_name = 'sessions';")
     if not cur.fetchone():
         print("Creating 'sessions' table...")
         cur.execute("CREATE TABLE sessions (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), flow_id UUID REFERENCES flows(id) ON DELETE CASCADE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);")
+    else:
+        # Check for flow_id in sessions
+        cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'sessions';")
+        session_cols = [c[0] for c in cur.fetchall()]
+        if 'flow_id' not in session_cols:
+            print("Adding 'flow_id' to 'sessions'...")
+            cur.execute("ALTER TABLE sessions ADD COLUMN flow_id UUID REFERENCES flows(id) ON DELETE CASCADE;")
 
     cur.execute("SELECT table_name FROM information_schema.tables WHERE table_name = 'messages';")
     if not cur.fetchone():

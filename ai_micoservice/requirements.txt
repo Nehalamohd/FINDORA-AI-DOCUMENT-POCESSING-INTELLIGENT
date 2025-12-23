@@ -9,3 +9,6 @@ redis
 pymupdf
 python-multipart
 mnemonic
+python-jose[cryptography]
+passlib[bcrypt]
+

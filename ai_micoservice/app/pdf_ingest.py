@@ -27,7 +27,7 @@ def chunk_text(text, size=500):
     for i in range(0, len(words), size):
         yield " ".join(words[i:i + size])
 
-def ingest_pdf(file_path: str, filename: str, task_id: str = None):
+def ingest_pdf(file_path: str, filename: str, task_id: str = None, flow_id: str = None):
     """
     Ingests a PDF. Uses Groq Vision to extract text/structure.
     One page is treated as one chunk.
@@ -36,8 +36,8 @@ def ingest_pdf(file_path: str, filename: str, task_id: str = None):
         with conn.cursor() as cur: 
             # Insert document with 'processing' status and task_id
             cur.execute(
-                "INSERT INTO documents (filename, file_path, file_type, status, task_id) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-                (filename, file_path, "pdf", "processing", task_id)
+                "INSERT INTO documents (filename, file_path, file_type, status, task_id, flow_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+                (filename, file_path, "pdf", "processing", task_id, flow_id)
             )
             document_id = cur.fetchone()["id"]
 

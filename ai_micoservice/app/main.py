@@ -11,8 +11,34 @@ from app.celery_app import celery_app
 from app.config import REDIS_URL
 import os
 import redis.asyncio as redis
+from fastapi import Depends, HTTPException, status, Header
+from app.database import get_conn
+
 
 app = FastAPI(title="Findora AI Service")
+
+async def get_current_user(x_username: str = Header(None)):
+    if not x_username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Username header is missing. Please provide your username (e.g. your email or name).",
+        )
+    
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Check if user exists, if not, create them automatically
+            cur.execute("SELECT id FROM users WHERE username = %s OR email = %s", (x_username, x_username))
+            user = cur.fetchone()
+            if not user:
+                cur.execute(
+                    "INSERT INTO users (username, password_hash) VALUES (%s, %s) RETURNING id",
+                    (x_username, "simple_mode") # No password needed in simple mode
+                )
+                user_id = cur.fetchone()["id"]
+                conn.commit()
+                return str(user_id)
+            return str(user["id"])
+
 
 class ConnectionManager:
     def __init__(self):
@@ -32,8 +58,35 @@ class ConnectionManager:
 manager = ConnectionManager()
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
+@app.get("/me")
+async def read_users_me(user_id: str = Depends(get_current_user)):
+    return {"user_id": user_id}
+
+@app.post("/create-flow")
+async def create_flow(name: str = Form(...), user_id: str = Depends(get_current_user)):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO flows (name, user_id) VALUES (%s, %s) RETURNING id",
+                (name, user_id)
+            )
+            flow_id = cur.fetchone()["id"]
+            conn.commit()
+            return {"flow_id": str(flow_id), "name": name}
+
 @app.post("/upload-pdf")
-async def upload_pdf(file: UploadFile):
+async def upload_pdf(
+    file: UploadFile, 
+    flow_id: str = Form(...), 
+    user_id: str = Depends(get_current_user)
+):
+    # Verify ownership of flow
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM flows WHERE id = %s AND user_id = %s", (flow_id, user_id))
+            if not cur.fetchone():
+                raise HTTPException(status_code=403, detail="You do not own this flow or flow does not exist")
+
     # Standardize temp path for Windows/Docker
     temp_dir = "/tmp" if os.name != 'nt' else "C:\\tmp"
     os.makedirs(temp_dir, exist_ok=True)
@@ -44,7 +97,7 @@ async def upload_pdf(file: UploadFile):
         f.write(await file.read())
 
     # Send to Celery Worker
-    task = process_pdf_task.delay(temp_path, file.filename)
+    task = process_pdf_task.delay(temp_path, file.filename, flow_id=flow_id)
     
     return {
         "status": "Processing started",
@@ -53,30 +106,26 @@ async def upload_pdf(file: UploadFile):
     }
 
 @app.get("/task-status/{task_id}")
-async def get_task_status(task_id: str):
+async def get_task_status(task_id: str, user_id: str = Depends(get_current_user)):
     """
     Verify the PDF processing status.
-    Returns details on why it failed if status is FAILURE.
     """
     task_result = AsyncResult(task_id, app=celery_app)
     
-    # Extract result or error message
     result_data = None
     error_detail = None
     
     if task_result.failed():
-        # Cleanly capture the error message from the exception
         error_detail = str(task_result.result)
     elif task_result.ready():
         result_data = task_result.result
 
-    response = {
+    return {
         "task_id": task_id,
-        "status": task_result.status, # PENDING, STARTED, SUCCESS, FAILURE
+        "status": task_result.status,
         "error": error_detail,
         "result": result_data
     }
-    return response
 
 @app.websocket("/ws/status")
 async def websocket_status(websocket: WebSocket):
@@ -96,22 +145,46 @@ async def websocket_status(websocket: WebSocket):
 
 # Chat Endpoint
 @app.post("/chat")
-async def chat(message: str = Form(...), session_id: str = Form(None)):
-    # Swagger default is "string", clean it up
-    if session_id == "string" or not session_id:
+async def chat(
+    message: str = Form(...), 
+    session_id: str = Form(None), 
+    user_id: str = Depends(get_current_user)
+):
+    # Validate/Generate UUID for session_id
+    if session_id:
+        try:
+            uuid.UUID(str(session_id))
+        except ValueError:
+            # If "1" or invalid string provided, generate a fresh session ID
+            session_id = str(uuid.uuid4())
+    else:
         session_id = str(uuid.uuid4())
     
-    # Ensure session exists in database (needed for foreign key)
-    from app.database import get_conn
+    # Ensure session exists and user owns it (via flow ownership)
+    flow_id = None
+
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM sessions WHERE id = %s", (session_id,))
-            if not cur.fetchone():
+            cur.execute("SELECT id, flow_id FROM sessions WHERE id = %s", (session_id,))
+            session_row = cur.fetchone()
+            if not session_row:
+                # If no session, they must provide a flow_id they own
+                # For now let's assume they might be starting a fresh session
+                # In a real UI, you'd pass flow_id here
                 cur.execute("INSERT INTO sessions (id) VALUES (%s)", (session_id,))
                 conn.commit()
+            else:
+                flow_id = session_row.get("flow_id")
+                # Verify ownership if flow exists
+                if flow_id:
+                    cur.execute("SELECT user_id FROM flows WHERE id = %s", (flow_id,))
+                    flow_owner = cur.fetchone()
+                    if flow_owner and str(flow_owner["user_id"]) != user_id:
+                        raise HTTPException(status_code=403, detail="You do not own this flow")
 
     history = get_chat_history(session_id)
-    context = retrieve_chunks(message)
+    # Filter documents by flow_id if available
+    context = retrieve_chunks(message, flow_id=flow_id)
     prompt = build_prompt(context_chunks=context, chat_history=history, question=message)
     answer = generate_answer(prompt)
 
