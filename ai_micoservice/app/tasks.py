@@ -1,5 +1,6 @@
 from app.celery_app import celery_app
 from app.pdf_ingest import ingest_pdf
+from app.pptx_ingest import ingest_pptx
 from app.config import REDIS_URL
 import os
 import redis
@@ -16,17 +17,22 @@ def publish_update(task_id: str, status: str, message: str = "", filename: str =
     }
     redis_client.publish("task_updates", json.dumps(data))
 
-@celery_app.task(bind=True, name="process_pdf")
-def process_pdf_task(self, file_path: str, filename: str, flow_id: str = None):
+@celery_app.task(bind=True, name="process_document")
+def process_document_task(self, file_path: str, filename: str, flow_id: str, x_username: str):
     task_id = self.request.id
     try:
-        publish_update(task_id, "processing", "Starting PDF analysis...", filename)
+        ext = os.path.splitext(filename)[1].lower()
+        publish_update(task_id, "processing", f"Starting {ext.upper()} analysis...", filename)
         
-        doc_id = ingest_pdf(file_path, filename, task_id=task_id, flow_id=flow_id)
+        if ext == ".pdf":
+            doc_id = ingest_pdf(file_path, filename, task_id=task_id, flow_id=flow_id, username=x_username)
+        elif ext in [".pptx", ".ppt"]:
+            doc_id = ingest_pptx(file_path, filename, task_id=task_id, flow_id=flow_id, username=x_username)
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
         
-        publish_update(task_id, "completed", "PDF processing successful.", filename)
-        return {"status": "success", "document_id": doc_id, "filename": filename, "task_id": task_id}
+        publish_update(task_id, "completed", f"{ext.upper()} processing successful.", filename)
+        return {"status": "success", "document_id": doc_id, "filename": filename, "task_id": task_id, "flow_id": flow_id, "username": x_username}
     except Exception as e:
         publish_update(task_id, "failed", str(e), filename)
-        # We raise the exception so Celery marks the task as FAILURE
         raise e

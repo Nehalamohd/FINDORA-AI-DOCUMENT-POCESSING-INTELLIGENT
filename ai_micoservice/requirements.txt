@@ -11,4 +11,5 @@ python-multipart
 mnemonic
 python-jose[cryptography]
 passlib[bcrypt]
-
+duckduckgo-search
+python-pptx

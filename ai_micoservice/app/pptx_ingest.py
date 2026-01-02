@@ -1,65 +1,54 @@
-from PyPDF2 import PdfReader
-import fitz  # PyMuPDF
-import base64
+from pptx import Presentation
 from app.embedding import embed
 from app.database import get_conn
-from app.llm import analyze_image
 
-def extract_text_by_page(pdf_path: str):
-    reader = PdfReader(pdf_path)
-    for i, page in enumerate(reader.pages):
-        yield i + 1, page.extract_text()
+def extract_text_from_pptx(pptx_path: str):
+    """Extracts text slide by slide from a PPTX file."""
+    prs = Presentation(pptx_path)
+    for i, slide in enumerate(prs.slides):
+        text_runs = []
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                text_runs.append(shape.text)
+        
+        # Also try to get notes
+        if slide.has_notes_slide:
+            notes = slide.notes_slide.notes_text_frame.text
+            if notes:
+                text_runs.append(f"\nNotes: {notes}")
+                
+        yield i + 1, "\n".join(text_runs)
 
-def convert_pdf_to_base64_images(pdf_path: str):
-    """Converts each page of a PDF to a base64 encoded JPEG image at 200 DPI."""
-    doc = fitz.open(pdf_path)
-    # 200 DPI calculation: 200 / 72 = 2.777...
-    zoom = 200 / 72
-    matrix = fitz.Matrix(zoom, zoom)
-    for i, page in enumerate(doc):
-        pix = page.get_pixmap(matrix=matrix) 
-        img_data = pix.tobytes("jpeg")
-        base64_img = base64.b64encode(img_data).decode("utf-8")
-        yield i + 1, base64_img
-
-def chunk_text(text, size=500):
-    words = text.split()
-    for i in range(0, len(words), size):
-        yield " ".join(words[i:i + size])
-
-def ingest_pdf(file_path: str, filename: str, task_id: str = None, flow_id: str = None, username: str = None):
+def ingest_pptx(file_path: str, filename: str, task_id: str = None, flow_id: str = None, username: str = None):
     """
-    Ingests a PDF. Uses Groq Vision to extract text/structure.
-    One page is treated as one chunk.
+    Ingests a PPTX file. Extracts text slide-by-slide.
     """
     with get_conn() as conn:
         with conn.cursor() as cur: 
             # Insert document with 'processing' status and task_id
             cur.execute(
                 "INSERT INTO documents (filename, file_path, file_type, status, task_id, flow_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (filename, file_path, "pdf", "processing", task_id, flow_id)
+                (filename, file_path, "pptx", "processing", task_id, flow_id)
             )
             document_id = cur.fetchone()["id"]
 
             try:
-                print(f"Processing {filename} with Vision Model (200 DPI)...")
+                print(f"Processing {filename} (PPTX)...")
                 
-                for page_no, base64_img in convert_pdf_to_base64_images(file_path):
-                    # Use Groq to extract text from image
-                    extracted_text = analyze_image(base64_img)
-                    
-                    if not extracted_text:
+                for slide_no, slide_text in extract_text_from_pptx(file_path):
+                    if not slide_text.strip():
                         continue
                         
-                    # Store page
+                    # Store page (slide)
                     cur.execute(
                         "INSERT INTO pages (document_id, page_number, content) VALUES (%s, %s, %s) RETURNING id",
-                        (document_id, page_no, extracted_text)
+                        (document_id, slide_no, slide_text)
                     )
                     page_id = cur.fetchone()["id"]
 
-                    # Chunking Strategy: One Page = One Chunk
-                    chunk_content = extracted_text
+                    # Chunking Strategy: One Slide = One Chunk (unless very long)
+                    # For simplicity, following the existing PDF pattern: one page/slide = one chunk
+                    chunk_content = slide_text
                     embeddings = embed([chunk_content])
                     
                     if embeddings:

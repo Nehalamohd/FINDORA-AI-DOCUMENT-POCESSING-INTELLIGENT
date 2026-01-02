@@ -51,26 +51,42 @@ def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
             results = cur.fetchall()
             return [r["content"] for r in results]
 
-def build_prompt(context_chunks: list[str], chat_history: list[str], question: str):
-    context = "\n\n".join(context_chunks)
+def build_prompt(context_chunks: list[str], chat_history: list[str], question: str, web_results: list[str] = None):
+    # Prepare Document Context
+    doc_context = "\n\n".join(context_chunks) if context_chunks else ""
+    
+    # Prepare Web Context
+    web_context = ""
+    if web_results:
+        web_context = "\n\n".join(web_results)
+    
     history = "\n".join(chat_history)
-    return f"""
-You are Findora AI, a helpful and expert assistant. Your goal is to provide comprehensive and insightful answers based on the provided document context.
+    
+    prompt = f"""
+You are Findora AI, a helpful and expert assistant.
+Your goal is to provide accurate, comprehensive, and detailed answers using the provided Context sources.
 
 Instructions:
-1. Use the provided "Context" to answer the user's "Question".
-2. If the answer isn't directly stated but can be inferred or summarized from the context, please provide a thoughtful summary.
-3. Keep the tone professional yet conversational.
-4. If the context is completely irrelevant to the question, gracefully explain that the document doesn't seem to cover that specific topic, but offer to explain what the document *is* about based on the available information.
+1. Prioritize "Document Context" if it contains the specific answer.
+2. If "Document Context" is missing or irrelevant, use "Web Search Context" to provide a thorough and detailed explanation.
+3. If the user asks for real-time data or definitions, provide a complete response with all relevant details found in the snippets.
+4. Do NOT start your response by explaining what is NOT in the documents. Just provide the best and most complete answer available.
+5. If using information from the internet, briefly mention "(Source: Web)" at the end of your answer.
+6. Maintain a helpful and professional tone, providing as much relevant information as the context allows.
 
 Chat History:
 {history}
 
-Context:
-{context}
+Document Context:
+{doc_context if doc_context else "None available."}
+
+Web Search Context:
+{web_context if web_context else "None available."}
 
 Question:
 {question}
 
 Answer:
 """
+    # print(f"[DEBUG] Full Prompt: {prompt}")
+    return prompt

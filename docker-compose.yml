@@ -63,6 +63,18 @@ services:
       - ./ai_micoservice/app:/app/app
       - temp_data:/tmp
 
+  frontend:
+    build: ./frontend_streamlit
+    container_name: findora_frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8000
+    depends_on:
+      - api
+    volumes:
+      - ./frontend_streamlit:/app
+
 volumes:
   postgres_data:
   temp_data:
