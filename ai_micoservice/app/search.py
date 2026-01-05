@@ -1,10 +1,15 @@
 from duckduckgo_search import DDGS
 
+#take search query from user 
+#ssearch intrnt using ddg
+
 def web_search(query: str, max_results: int = 10) -> list[str]:
     """
     Performs a web search using DuckDuckGo and returns a list of result snippets.
     """
+    #store search result
     results = []
+    #print what query we are searching
     print(f"[DEBUG] Performing web search for: {query}")
     try:
         with DDGS() as ddgs:

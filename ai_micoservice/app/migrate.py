@@ -1,6 +1,9 @@
+#Can handle updates and changes over time.
 import psycopg2
 from app.config import DB_CONFIG
-
+#Connects to PostgreSQL
+#Checks whether required tables exist
+#If they don’t exist, it creates them
 def update_database():
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
@@ -49,6 +52,7 @@ def update_database():
     """)
 
     # 1.2 Update 'documents' columns if needed (backward compatibility)
+    #with out effect on existing data
     cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'documents';")
     existing_cols = [c[0] for c in cur.fetchall()]
     if 'status' not in existing_cols:
@@ -80,6 +84,11 @@ def update_database():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    # Add retrieved_context if missing (for legacy tables)
+    cur.execute("SELECT column_name FROM information_schema.columns WHERE table_name = 'messages';")
+    msg_cols = [c[0] for c in cur.fetchall()]
+    if 'retrieved_context' not in msg_cols:
+        cur.execute("ALTER TABLE messages ADD COLUMN IF NOT EXISTS retrieved_context JSONB;")
 
     # 4. Pages and Chunks (Basic structures)
     print("Ensuring 'pages' and 'chunks' tables...")
@@ -104,6 +113,7 @@ def update_database():
     cur.execute("CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN(tsv);")
     
     # 5. Embeddings
+    #for similarity search
     cur.execute("""
         CREATE TABLE IF NOT EXISTS embeddings (
             id SERIAL PRIMARY KEY,
@@ -117,8 +127,9 @@ def update_database():
         USING ivfflat (embedding vector_cosine_ops)
         WITH (lists = 100);
     """)
-
+#Every time you insert or update a row, this trigger automatically
     # 6. TSVector Trigger
+    #for  text keyword search updates
     cur.execute("""
     CREATE OR REPLACE FUNCTION chunks_trigger() RETURNS trigger AS $$
     begin

@@ -15,13 +15,18 @@ email = st.text_input("Email (Optional)")
 password = st.text_input("Password", type="password")
 confirm_password = st.text_input("Confirm Password", type="password")
 
+
+#if the user clicked the "Register" button
 if st.button("Register"):
+    #Ensures the user entered both a username and a password
     if not username or not password:
         st.error("Username and Password are required")
     elif password != confirm_password:
         st.error("Passwords do not match")
     else:
+        #talks to the backend API to register the user
         api = APIClient()
+        #Sends registration details to backend
         result = api.register(username, password, email)
         
         if "user_id" in result:

@@ -1,24 +1,16 @@
-import psycopg2
-from .config import DB_CONFIG
+from app.database import engine
+from sqlalchemy import inspect
 
+#for development: check if tables exist
 def check_tables():
     try:
-        conn = psycopg2.connect(**DB_CONFIG)
-        cur = conn.cursor()
+        inspector = inspect(engine)
+        tables = inspector.get_table_names()
         
-        # List all tables in public schema
-        cur.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public';
-        """)
-        rows = cur.fetchall()
         print("Tables in DB:")
-        for r in rows:
-            print(f"- {r[0]}")
+        for table in tables:
+            print(f"- {table}")
             
-        cur.close()
-        conn.close()
     except Exception as e:
         print(f"Error: {e}")
 

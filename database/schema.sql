@@ -2,6 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- Users
+#for registering users
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     username TEXT UNIQUE NOT NULL,
@@ -11,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- Flows (Projects/Pipelines)
--- This allows you to group documents (e.g., "Software Engineer Hiring", "Q1 Reports")
+-- This allows to group documents
+#rep user created workflow
 CREATE TABLE IF NOT EXISTS flows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -56,10 +58,10 @@ CREATE TABLE IF NOT EXISTS chunks (
     tsv tsvector -- Full-text search vector
 );
 
--- Index for full-text search
+-- Index for full-text search(processed text)
 CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN(tsv);
 
--- Update trigger for tsvector
+-- Update trigger for tsvector for automatically run wen inserting/updating chunks
 CREATE OR REPLACE FUNCTION chunks_trigger() RETURNS trigger AS $$
 begin
   new.tsv := to_tsvector('english', coalesce(new.content, ''));
@@ -77,6 +79,8 @@ CREATE TABLE IF NOT EXISTS embeddings (
     embedding VECTOR(384)
 );
 
+#nearest neighbor (ANN) search
+#for semantic search fast.
 -- Index for fast search
 CREATE INDEX IF NOT EXISTS embeddings_vector_idx
 ON embeddings
@@ -84,13 +88,15 @@ USING ivfflat (embedding vector_cosine_ops)
 WITH (lists = 100);
 
 -- Sessions
+#sessions table tracks individual sessions for a flow
+#connects the session to a flow.
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     flow_id UUID REFERENCES flows(id) ON DELETE CASCADE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Messages
+-- table stores all chat messages within a session
 -- Added 'retrieved_context' to see what the AI used to answer
 CREATE TABLE IF NOT EXISTS messages (
     id SERIAL PRIMARY KEY,

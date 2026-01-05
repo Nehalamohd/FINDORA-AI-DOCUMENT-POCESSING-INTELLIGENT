@@ -1,5 +1,6 @@
 from app.embedding import embed
-from app.database import get_conn
+from app.database import SessionLocal
+from sqlalchemy import text
 
 def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
     """
@@ -8,27 +9,42 @@ def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
     """
     q_emb = embed([query])[0]
     
-    # SQL for Hybrid Search using Postgres Full Text Search and pgvector
-    # Join with documents to filter by flow_id
+    #create temp table for semantic and keyword search
+    #chunk id tells which chunk matches the query
+    #%s::vector is query embedding
+    #cosine_similarity = 1 - cosine_distance
+    #similarity score btwn 0 ,1.... 0 identical
+    #every embeddings belongs to chunk... evry chunk blngs to doc
+    #evry  doc blng to flow
+    #flowid null search every where... else search inside the flow
+    #keep only top k res
+    # ts_rank_cd() = ranking function for full text search
+    #Higher score = better keyword match
+    #c.tsv is the tsvector column in chunks table
+    #plainto_tsquery converts user query to searchable tokens
+    #@@ matches text against tsvector
+    # final select combines both results
     sql = """
     WITH semantic_search AS (
-        SELECT e.chunk_id, 1 - (e.embedding <=> %s::vector) AS score
+        SELECT e.chunk_id, 1 - (e.embedding <=> CAST(:q_emb AS vector)) AS score
         FROM embeddings e
         JOIN chunks c ON e.chunk_id = c.id
         JOIN documents d ON c.document_id = d.id
-        WHERE d.flow_id = %s::uuid OR %s::uuid IS NULL
-        ORDER BY e.embedding <=> %s::vector
-        LIMIT %s
+        WHERE d.flow_id = CAST(:flow_id AS uuid) OR :flow_id IS NULL
+        ORDER BY e.embedding <=> CAST(:q_emb AS vector)
+        LIMIT :top_k_2
     ),
+    
     keyword_search AS (
-        SELECT c.id as chunk_id, ts_rank_cd(c.tsv, plainto_tsquery('english', %s)) AS score
+        SELECT c.id as chunk_id, ts_rank_cd(c.tsv, plainto_tsquery('english', :query)) AS score
         FROM chunks c
         JOIN documents d ON c.document_id = d.id
-        WHERE (c.tsv @@ plainto_tsquery('english', %s)) 
-          AND (d.flow_id = %s::uuid OR %s::uuid IS NULL)
+        WHERE (c.tsv @@ plainto_tsquery('english', :query)) 
+          AND (d.flow_id = CAST(:flow_id AS uuid) OR :flow_id IS NULL)
         ORDER BY score DESC
-        LIMIT %s
+        LIMIT :top_k_2
     )
+
     SELECT c.content, 
            COALESCE(s.score, 0) * 0.7 + COALESCE(k.score, 0) * 0.3 AS hybrid_score
     FROM chunks c
@@ -36,20 +52,23 @@ def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
     LEFT JOIN keyword_search k ON c.id = k.chunk_id
     WHERE s.chunk_id IS NOT NULL OR k.chunk_id IS NOT NULL
     ORDER BY hybrid_score DESC
-    LIMIT %s;
+    LIMIT :top_k;
     """
     
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # We pass flow_id multiple times for the OR logic
-            params = (
-                q_emb, flow_id, flow_id, q_emb, top_k * 2, # semantic
-                query, query, flow_id, flow_id, top_k * 2, # keyword
-                top_k # final limit
-            )
-            cur.execute(sql, params)
-            results = cur.fetchall()
-            return [r["content"] for r in results]
+    db = SessionLocal()
+    try:
+        params = {
+            "q_emb": str(q_emb.tolist()) if hasattr(q_emb, 'tolist') else str(q_emb),
+            "flow_id": flow_id,
+            "query": query,
+            "top_k_2": top_k * 2,
+            "top_k": top_k
+        }
+        result = db.execute(text(sql), params)
+        rows = result.fetchall()
+        return [r[0] for r in rows] # Returns final best chunks to your app
+    finally:
+        db.close()
 
 def build_prompt(context_chunks: list[str], chat_history: list[str], question: str, web_results: list[str] = None):
     # Prepare Document Context

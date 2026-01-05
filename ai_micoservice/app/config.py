@@ -9,6 +9,8 @@ DB_CONFIG = {
     "password": "findorapass"
 }
 
+DATABASE_URL = f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['dbname']}"
+
 # Other configurations
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")

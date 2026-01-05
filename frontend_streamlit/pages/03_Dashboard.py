@@ -67,3 +67,7 @@ else:
                 st.session_state["current_flow_id"] = flow['flow_id']
                 st.session_state["current_flow_name"] = flow['name']
                 st.switch_page("pages/04_Chat.py")
+#When Chat button is clicked:
+#Saves selected flow info in session state
+#Switches to the Chat page
+#Chat page can know which flow to chat with

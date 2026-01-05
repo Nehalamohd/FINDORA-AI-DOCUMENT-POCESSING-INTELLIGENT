@@ -1,31 +1,33 @@
 import json
 import random
-from app.database import get_conn
+from app.database import SessionLocal
+from app.models import Chunk, Document, GoldenQA
 from app.llm import client
+
 
 def generate_golden_questions(flow_id: str, num_questions: int = 5):
     """
     Generates golden Q&A pairs from the documents in the specified flow.
     """
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # 1. Fetch chunks from the flow
-            cur.execute("""
-                SELECT c.content 
-                FROM chunks c
-                JOIN documents d ON c.document_id = d.id
-                WHERE d.flow_id = %s
-            """, (flow_id,))
-            rows = cur.fetchall()
-            
+    db = SessionLocal()
+    try:
+        # 1. Fetch content from chunks filtered by flow_id
+        # match each chunk to its document to filter by flow_id
+        rows = db.query(Chunk.content).join(Document, Chunk.document_id == Document.id).filter(Document.flow_id == flow_id).all()
+    finally:
+        db.close()
+     # if rows is empty       
     if not rows:
         return {"error": "No documents found in this flow to generate questions from."}
     
     # 2. Select random chunks to generate questions from
-    chunks = [r["content"] for r in rows]
-    # Simple strategy: take random sample or combine a few
+    #to convert list of dict to list of string
+    chunks = [r[0] for r in rows]
+    # Simple strategy: take random sample or 
+    # combine a few into one single string
+
     selected_context = "\n\n".join(random.sample(chunks, min(len(chunks), 3)))
-    
+    #Instruction or prompt for the LLM
     prompt = f"""
     You are an expert evaluator. Given the following text, generate {num_questions} diverse question and answer pairs.
     The questions should be specific and the answers should be accurate based ONLY on the text.
@@ -39,7 +41,10 @@ def generate_golden_questions(flow_id: str, num_questions: int = 5):
     Text:
     {selected_context}
     """
+    #model reads the text and 
+    # invents questions and answers based on it
     
+    #send prompt to ai model
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -47,7 +52,7 @@ def generate_golden_questions(flow_id: str, num_questions: int = 5):
             temperature=0.7
         )
         content = response.choices[0].message.content
-        # robust json parsing
+        #  Parse JSON from response may be llm add extra text
         start = content.find('[')
         end = content.rfind(']') + 1
         if start == -1 or end == 0:
@@ -55,17 +60,17 @@ def generate_golden_questions(flow_id: str, num_questions: int = 5):
             
         qa_pairs = json.loads(content[start:end])
         
-        # 3. Save to database
+        #  Save to database
         saved_count = 0
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                for qa in qa_pairs:
-                    cur.execute(
-                        "INSERT INTO golden_qa (flow_id, question, expected_answer) VALUES (%s, %s, %s)",
-                        (flow_id, qa['question'], qa['answer'])
-                    )
-                    saved_count += 1
-                conn.commit()
+        db = SessionLocal()
+        try:
+            for qa in qa_pairs:
+                golden = GoldenQA(flow_id=flow_id, question=qa['question'], expected_answer=qa['answer'])
+                db.add(golden)
+                saved_count += 1
+            db.commit()
+        finally:
+            db.close()
                 
         return {"message": f"Successfully generated and saved {saved_count} golden Q&A pairs."}
         
@@ -73,6 +78,8 @@ def generate_golden_questions(flow_id: str, num_questions: int = 5):
         print(f"Error generating golden questions: {e}")
         return {"error": str(e)}
 
+#for evaluating answers provided by the LLM
+#pass question, expected answer, generated answer
 def evaluate_answer(question: str, expected_answer: str, generated_answer: str):
     """
     Uses LLM-as-a-judge to score the generated answer against the expected answer.
@@ -80,6 +87,8 @@ def evaluate_answer(question: str, expected_answer: str, generated_answer: str):
     prompt = f"""
     Compare the Generated Answer with the Expected Answer for the given Question.
     
+    # we give
+
     Question: {question}
     Expected Answer: {expected_answer}
     Generated Answer: {generated_answer}
@@ -95,11 +104,15 @@ def evaluate_answer(question: str, expected_answer: str, generated_answer: str):
     """
     
     try:
+        #send prompt to llm 
+        #llm compr exp vs generated answer
+
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1
         )
+        # only need text part
         content = response.choices[0].message.content
         
         start = content.find('{')

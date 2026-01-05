@@ -20,6 +20,9 @@ from app.celery_app import celery_app
 from app.config import REDIS_URL
 from app.auth import get_password_hash, verify_password, create_access_token, get_current_active_user, ACCESS_TOKEN_EXPIRE_MINUTES
 from app.evaluation import generate_golden_questions, evaluate_answer
+from app.database import get_db
+from app.models import User, Flow, Session as DBSession, Message as DBMessage, Document, GoldenQA, Evaluation as DBEvaluation
+from sqlalchemy.orm import Session
 
 app = FastAPI(title="Findora AI Service")
 
@@ -59,157 +62,155 @@ manager = ConnectionManager()
 # --- Auth & User Management ---
 
 @app.post("/token")
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    from app.database import get_conn
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT username, password_hash FROM users WHERE username = %s", (form_data.username,))
-            user = cur.fetchone()
+#receive login form data
+#connect to db to verify user
 
-    if not user or not verify_password(form_data.password, user["password_hash"]):
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == form_data.username).first()
+    
+#validate password
+    if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+    #set token expiry
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user["username"]}, expires_delta=access_token_expires
+        data={"sub": user.username}, expires_delta=access_token_expires
     )
+    #frontend receives this token
     return {"access_token": access_token, "token_type": "bearer"}
 
+#to register new users
 @app.post("/users/register")
-async def register_user(username: str = Form(...), password: str = Form(...), email: str = Form(None)):
+async def register_user(username: str = Form(...), password: str = Form(...), email: str = Form(None), db: Session = Depends(get_db)):
     """
     Register a new user. Now requires a password.
     """
-    from app.database import get_conn
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            # Check if user exists
-            cur.execute("SELECT id, username FROM users WHERE username = %s", (username,))
-            user = cur.fetchone()
-            
-            if user:
-                raise HTTPException(status_code=400, detail="User already exists")
-            
-            # Create new user with real password hash
-            password_hash = get_password_hash(password)
-            
-            cur.execute(
-                "INSERT INTO users (username, email, password_hash) VALUES (%s, %s, %s) RETURNING id, username",
-                (username, email, password_hash)
-            )
-            new_user = cur.fetchone()
-            conn.commit()
-            
-            return {
-                "user_id": str(new_user["id"]),
-                "username": new_user["username"],
-                "message": "User created successfully"
-            }
+    # Check if user exists if yes raise 400 error
+    user = db.query(User).filter(User.username == username).first()
+    
+    if user:
+        raise HTTPException(status_code=400, detail="User already exists")
+    
+    # hashes the password before storing
+    password_hash = get_password_hash(password)
+    
+    # insert new user to db
+    new_user = User(username=username, email=email, password_hash=password_hash)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {
+        "user_id": str(new_user.id),
+        "username": new_user.username,
+        "message": "User created successfully"
+    }
 
+#to display current user info
 @app.get("/users/me")
-async def get_current_user_info(current_user: dict = Depends(get_current_active_user)):
+async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
     """
     Get current user info. Requires 'Authorization: Bearer <token>'
     """
     return {
-        "user_id": str(current_user["id"]),
-        "username": current_user["username"],
-        "email": current_user["email"],
-        "created_at": str(current_user["created_at"])
+        "user_id": str(current_user.id),
+        "username": current_user.username,
+        "email": current_user.email,
+        "created_at": str(current_user.created_at)
     }
 
 # --- Flow Management ---
 
 @app.post("/flows/create")
-async def create_flow(name: str = Form(...), current_user: dict = Depends(get_current_active_user)):
+async def create_flow(name: str = Form(...), current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """
     Create a new flow for the current user.
     """
-    from app.database import get_conn
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            user_id = current_user["id"]
-            
-            # Create flow
-            cur.execute(
-                "INSERT INTO flows (user_id, name) VALUES (%s, %s) RETURNING id, name, created_at",
-                (user_id, name)
-            )
-            flow = cur.fetchone()
-            conn.commit()
-            
-            return {
-                "flow_id": str(flow["id"]),
-                "name": flow["name"],
-                "created_at": str(flow["created_at"]),
-                "message": "Flow created successfully"
-            }
+    # Create flow
+    flow = Flow(user_id=current_user.id, name=name)
+    db.add(flow)
+    db.commit()
+    db.refresh(flow)
+    
+    return {
+        "flow_id": str(flow.id),
+        "name": flow.name,
+        "created_at": str(flow.created_at),
+        "message": "Flow created successfully"
+    }
 
+#display all flows for current user in dashboard in desc order
 @app.get("/flows/my-flows")
-async def get_my_flows(current_user: dict = Depends(get_current_active_user)):
+async def get_my_flows(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """
     Get all flows for the current user.
     """
-    from app.database import get_conn
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            user_id = current_user["id"]
-            
-            # Get all flows for this user
-            cur.execute(
-                "SELECT id, name, created_at FROM flows WHERE user_id = %s ORDER BY created_at DESC",
-                (user_id,)
-            )
-            flows = cur.fetchall()
-            
-            return {
-                "username": current_user["username"],
-                "flows": [
-                    {
-                        "flow_id": str(flow["id"]),
-                        "name": flow["name"],
-                        "created_at": str(flow["created_at"])
-                    }
-                    for flow in flows
-                ]
+    # Get all flows for this user
+    flows = db.query(Flow).filter(Flow.user_id == current_user.id).order_by(Flow.created_at.desc()).all()
+    
+    return {
+        "username": current_user.username,
+        "flows": [
+            {
+                "flow_id": str(flow.id),
+                "name": flow.name,
+                "created_at": str(flow.created_at)
             }
+            for flow in flows
+        ]
+    }
 
 # --- Document Upload ---
 
 @app.post("/upload")
-async def upload_document(file: UploadFile, flow_name: str = Form(None), current_user: dict = Depends(get_current_active_user)):
+async def upload_document(
+    file: UploadFile, 
+    flow_id: str = Form(None), 
+    flow_name: str = Form(None), 
+    current_user: User = Depends(get_current_active_user), 
+    db: Session = Depends(get_db)
+):
     """
-    Upload a document (PDF, PPTX). Requires valid auth token.
+    Upload a document (PDF, PPTX). 
+    If flow_id is provided, adds to that flow. 
+    Otherwise, creates a new flow with flow_name.
     """
-    from app.database import get_conn
-    
-    username = current_user["username"]
-    user_id = current_user["id"]
+    username = current_user.username
+    user_id = current_user.id
 
-    # Validate extension
+    # ensure uploaded file is pdf or pptx
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in [".pdf", ".pptx", ".ppt"]:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-             # Create a new flow for this upload
-            if not flow_name:
-                flow_name = f"Upload: {file.filename}"
-            
-            cur.execute(
-                "INSERT INTO flows (user_id, name) VALUES (%s, %s) RETURNING id",
-                (user_id, flow_name)
-            )
-            flow = cur.fetchone()
-            flow_id = str(flow["id"])
-            conn.commit()
+    if flow_id and flow_id != "string":
+        # Validate and use existing flow
+        try:
+            flow_uuid = uuid.UUID(flow_id)
+            flow = db.query(Flow).filter(Flow.id == flow_uuid, Flow.user_id == user_id).first()
+            if not flow:
+                raise HTTPException(status_code=404, detail="Flow not found or access denied")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid flow_id format")
+    else:
+        # create a new flow for this upload
+        if not flow_name or flow_name == "string":
+            flow_name = f"Upload: {file.filename}"
+        
+        flow = Flow(user_id=user_id, name=flow_name)
+        db.add(flow)
+        db.commit()
+        db.refresh(flow)
+    
+    flow_id = str(flow.id)
+    flow_name = flow.name
     
     # Create folder structure: /tmp/flows/{flow_id}/
+    #each flow has its own folder
     temp_dir = "/tmp" if os.name != 'nt' else "C:\\tmp"
     flow_folder = os.path.join(temp_dir, "flows", flow_id)
     os.makedirs(flow_folder, exist_ok=True)
@@ -220,7 +221,7 @@ async def upload_document(file: UploadFile, flow_name: str = Form(None), current
     with open(temp_path, "wb") as f:
         f.write(await file.read())
 
-    # send to celery worker
+    # send file to celery worker
     task = process_document_task.delay(temp_path, file.filename, flow_id, username)
     
     return {
@@ -233,15 +234,12 @@ async def upload_document(file: UploadFile, flow_name: str = Form(None), current
         "message": f"Created new flow '{flow_name}' and uploaded file"
     }
 
-# Keeping this for backward compatibility if any client uses it specifically
-@app.post("/upload-pdf")
-async def upload_pdf_legacy(file: UploadFile, flow_name: str = Form(None), current_user: dict = Depends(get_current_active_user)):
-    return await upload_document(file, flow_name, current_user)
+
 
 # --- Task Status ---
 
 @app.get("/task-status/{task_id}")
-async def get_task_status(task_id: str, current_user: dict = Depends(get_current_active_user)):
+async def get_task_status(task_id: str, current_user: User = Depends(get_current_active_user)):
     """
     Verify the document processing status.
     """
@@ -254,6 +252,7 @@ async def get_task_status(task_id: str, current_user: dict = Depends(get_current
     if task_result.failed():
         # cleanly capture the error message from the exception
         error_detail = str(task_result.result)
+    #task completed successfully
     elif task_result.ready():
         result_data = task_result.result
 
@@ -266,9 +265,11 @@ async def get_task_status(task_id: str, current_user: dict = Depends(get_current
     return response
 
 #web socket to stay open for status updates
+# WebSocket for Real-time task updates 
 @app.websocket("/ws/status")
 async def websocket_status(websocket: WebSocket):
     await manager.connect(websocket)
+    #check if redis has new messages
     pubsub = redis_client.pubsub()
     await pubsub.subscribe("task_updates")
     
@@ -282,35 +283,23 @@ async def websocket_status(websocket: WebSocket):
         manager.disconnect(websocket)
         await pubsub.unsubscribe("task_updates")
 
-# --- Chat ---
+# asking question about documents in a flow
 
 @app.post("/chat")
-async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: str = Form(None), current_user: dict = Depends(get_current_active_user)):
+async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: str = Form(None), current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """
     Chat with documents in a flow.
     """
-    from app.database import get_conn
-    
-    username = current_user["username"]
+    username = current_user.username
 
     # If flow_id not provided, get user's most recent flow
     if not flow_id or flow_id == "string":
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                # We can just join on user_id directly from the token, cleaner than username join
-                cur.execute("""
-                    SELECT id 
-                    FROM flows 
-                    WHERE user_id = %s 
-                    ORDER BY created_at DESC 
-                    LIMIT 1
-                """, (current_user["id"],))
-                flow = cur.fetchone()
-                
-                if not flow:
-                    raise HTTPException(status_code=404, detail=f"No flows found for user '{username}'. Please upload a document first.")
-                
-                flow_id = str(flow["id"])
+        flow = db.query(Flow).filter(Flow.user_id == current_user.id).order_by(Flow.created_at.desc()).first()
+        
+        if not flow:
+            raise HTTPException(status_code=404, detail=f"No flows found for user '{username}'. Please upload a document first.")
+        
+        flow_id = str(flow.id)
     else:
         # Validate provided flow_id
         try:
@@ -320,19 +309,19 @@ async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: 
     
     #swagger default is "string", clean it up
     if session_id == "string" or not session_id:
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid.uuid4())#uniq identifier
     
     # ensure session exists in database (needed for foreign key)
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id FROM sessions WHERE id = %s", (session_id,))
-            if not cur.fetchone():
-                cur.execute("INSERT INTO sessions (id, flow_id) VALUES (%s, %s)", (session_id, flow_id))
-                conn.commit()
+    session = db.query(DBSession).filter(DBSession.id == session_id).first()
+    if not session:
+        #create new session
+        session = DBSession(id=session_id, flow_id=flow_id)
+        db.add(session)
+        db.commit()
 
-    # check the history , retrieve context,build prompt
-    # generate answer and save both user and assistant message
+    # to fetch chat history(previous messages)
     history = get_chat_history(session_id)
+    #retrieve relevant chunks from documents in flow
     context = retrieve_chunks(message, flow_id=flow_id)
     
     web_results = None
@@ -340,6 +329,7 @@ async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: 
     if not context:
         web_results = web_search(message)
     
+    #builds the final prompt that will be sent to the AI model
     prompt = build_prompt(context_chunks=context, chat_history=history, question=message, web_results=web_results)
     answer = generate_answer(prompt)
 
@@ -348,53 +338,46 @@ async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: 
 
     return {"session_id": session_id, "answer": answer, "flow_id": flow_id}
 
-# --- Evaluation Endpoints ---
-
+# Evaluation Endpoints 
 @app.post("/flows/{flow_id}/golden/auto-generate")
-async def auto_generate_golden(flow_id: str, count: int = 5, current_user: dict = Depends(get_current_active_user)):
+#only logged in users can generate golden qna
+async def auto_generate_golden(flow_id: str, count: int = 5, current_user: User = Depends(get_current_active_user)):
     """
     Auto-generates 'Golden' Q&A pairs from documents in the flow.
     """
     return generate_golden_questions(flow_id, count)
 
+#to view all golden qna pairs for a flow
 @app.get("/flows/{flow_id}/golden")
-async def get_golden_qa(flow_id: str, current_user: dict = Depends(get_current_active_user)):
+async def get_golden_qa(flow_id: str, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """
     Get all Golden Q&A pairs for a flow.
     """
-    from app.database import get_conn
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, question, expected_answer, created_at FROM golden_qa WHERE flow_id = %s", (flow_id,))
-            rows = cur.fetchall()
-            return [
-                {"id": str(r["id"]), "question": r["question"], "expected_answer": r["expected_answer"], "created_at": str(r["created_at"])} 
-                for r in rows
-            ]
+    rows = db.query(GoldenQA).filter(GoldenQA.flow_id == flow_id).all()
+    return [
+        {"id": str(r.id), "question": r.question, "expected_answer": r.expected_answer, "created_at": str(r.created_at)} 
+        for r in rows
+    ]
 
+#for evaluating the flow against golden qna pairs
 @app.post("/flows/{flow_id}/evaluate")
-async def run_evaluation(flow_id: str, current_user: dict = Depends(get_current_active_user)):
+async def run_evaluation(flow_id: str, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
     """
     Runs the RAG pipeline against all Golden Q&A pairs for this flow and scores the results.
     """
-    from app.database import get_conn
-    
     # 1. Get Golden Pairs
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("SELECT id, question, expected_answer FROM golden_qa WHERE flow_id = %s", (flow_id,))
-            golden_pairs = cur.fetchall()
+    golden_pairs = db.query(GoldenQA).filter(GoldenQA.flow_id == flow_id).all()
             
     if not golden_pairs:
         raise HTTPException(status_code=400, detail="No golden Q&A pairs found for this flow. Please generate or add some first.")
 
     results = []
     
-    # 2. Iterate and Evaluate
+    #Loop through each golden Q&A row one by one
     for pair in golden_pairs:
-        golden_id = str(pair["id"])
-        question = pair["question"]
-        expected = pair["expected_answer"]
+        golden_id = str(pair.id)
+        question = pair.question
+        expected = pair.expected_answer
         
         # Call RAG Pipeline (Internal Call)
         # We simulate the chat logic directly to avoid HTTP overhead
@@ -414,15 +397,17 @@ async def run_evaluation(flow_id: str, current_user: dict = Depends(get_current_
         # Score it
         eval_result = evaluate_answer(question, expected, generated_answer)
         
-        # Save Evaluation
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO evaluations (golden_id, generated_answer, similarity_score, judge_feedback) VALUES (%s, %s, %s, %s)",
-                    (golden_id, generated_answer, eval_result["score"], eval_result["feedback"])
-                )
-                conn.commit()
-                
+        # Save Evaluation to db
+        eval_record = DBEvaluation(
+            golden_id=pair.id,
+            generated_answer=generated_answer,
+            similarity_score=eval_result["score"],
+            judge_feedback=eval_result["feedback"]
+        )
+        db.add(eval_record)
+        db.commit()
+         #store each result in a list to return later
+         # together       
         results.append({
             "question": question,
             "generated_answer": generated_answer,

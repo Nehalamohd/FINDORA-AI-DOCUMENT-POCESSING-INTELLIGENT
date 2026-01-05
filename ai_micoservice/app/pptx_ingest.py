@@ -1,17 +1,20 @@
 from pptx import Presentation
 from app.embedding import embed
-from app.database import get_conn
+from app.database import SessionLocal
+from app.models import Document, Page, Chunk, Embedding
+from sqlalchemy import text
 
 def extract_text_from_pptx(pptx_path: str):
     """Extracts text slide by slide from a PPTX file."""
     prs = Presentation(pptx_path)
     for i, slide in enumerate(prs.slides):
         text_runs = []
+        #loop over all shapes in slide like table ,box
         for shape in slide.shapes:
-            if hasattr(shape, "text"):
+            if hasattr(shape, "text"): #ensure shape has text property
                 text_runs.append(shape.text)
         
-        # Also try to get notes
+        # Also try to get notes from slide
         if slide.has_notes_slide:
             notes = slide.notes_slide.notes_text_frame.text
             if notes:
@@ -23,59 +26,73 @@ def ingest_pptx(file_path: str, filename: str, task_id: str = None, flow_id: str
     """
     Ingests a PPTX file. Extracts text slide-by-slide.
     """
-    with get_conn() as conn:
-        with conn.cursor() as cur: 
-            # Insert document with 'processing' status and task_id
-            cur.execute(
-                "INSERT INTO documents (filename, file_path, file_type, status, task_id, flow_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-                (filename, file_path, "pptx", "processing", task_id, flow_id)
-            )
-            document_id = cur.fetchone()["id"]
+    db = SessionLocal()
+    try:
+        # Insert document with 'processing' status and task_id
+        doc = Document(
+            filename=filename,
+            file_path=file_path,
+            file_type="pptx",
+            status="processing",
+            task_id=task_id,
+            flow_id=flow_id
+        )
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        document_id = doc.id
 
-            try:
-                print(f"Processing {filename} (PPTX)...")
+        print(f"Processing {filename} (PPTX)...")
+        
+        for slide_no, slide_text in extract_text_from_pptx(file_path):
+            if not slide_text.strip():
+                continue
                 
-                for slide_no, slide_text in extract_text_from_pptx(file_path):
-                    if not slide_text.strip():
-                        continue
-                        
-                    # Store page (slide)
-                    cur.execute(
-                        "INSERT INTO pages (document_id, page_number, content) VALUES (%s, %s, %s) RETURNING id",
-                        (document_id, slide_no, slide_text)
-                    )
-                    page_id = cur.fetchone()["id"]
+            # Store page (slide)
+            page = Page(document_id=document_id, page_number=slide_no, content=slide_text)
+            db.add(page)
+            db.commit()
+            db.refresh(page)
+            page_id = page.id
 
-                    # Chunking Strategy: One Slide = One Chunk (unless very long)
-                    # For simplicity, following the existing PDF pattern: one page/slide = one chunk
-                    chunk_content = slide_text
-                    embeddings = embed([chunk_content])
-                    
-                    if embeddings:
-                        embedding = embeddings[0]
-                        cur.execute(
-                            "INSERT INTO chunks (document_id, page_id, chunk_index, content) VALUES (%s, %s, %s, %s) RETURNING id",
-                            (document_id, page_id, 0, chunk_content)
-                        )
-                        chunk_id = cur.fetchone()["id"]
-                        cur.execute(
-                            "INSERT INTO embeddings (chunk_id, embedding) VALUES (%s, %s)",
-                            (chunk_id, embedding)
-                        )
-
-                # Mark as completed
-                cur.execute(
-                    "UPDATE documents SET status = 'completed' WHERE id = %s",
-                    (document_id,)
+            # Chunking Strategy: One Slide = One Chunk (unless very long)
+            # For simplicity, following the existing PDF pattern: one page/slide = one chunk
+            chunk_content = slide_text
+            embeddings = embed([chunk_content])
+            
+            if embeddings:
+                embedding = embeddings[0]
+                chunk = Chunk(document_id=document_id, page_id=page_id, chunk_index=0, content=chunk_content)
+                db.add(chunk)
+                db.commit()
+                db.refresh(chunk)
+                chunk_id = chunk.id
+                
+                # Insert embedding record (we'll update the vector column using raw SQL 
+                # because standard SQLAlchemy doesn't support the 'vector' type without extensions)
+                db.execute(
+                    text("INSERT INTO embeddings (chunk_id, embedding) VALUES (:chunk_id, CAST(:embedding AS vector))"),
+                    {"chunk_id": chunk_id, "embedding": str(embedding.tolist()) if hasattr(embedding, 'tolist') else str(embedding)}
                 )
+                db.commit()
 
-            except Exception as e:
-                cur.execute(
-                    "UPDATE documents SET status = 'failed', error_message = %s WHERE id = %s",
-                    (str(e), document_id)
+        # Mark as completed
+        doc.status = 'completed'
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        if 'doc' in locals():
+            try:
+                db.execute(
+                    text("UPDATE documents SET status = 'failed', error_message = :err WHERE task_id = :tid"),
+                    {"err": str(e), "tid": task_id}
                 )
-                conn.commit()
-                raise e
-
-            conn.commit()
+                db.commit()
+            except Exception as inner_e:
+                print(f"Failed to log error to DB: {inner_e}")
+        raise e
+    finally:
+        db.close()
+        
     return document_id

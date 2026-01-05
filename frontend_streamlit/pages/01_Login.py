@@ -18,10 +18,13 @@ if st.button("Login"):
     if not username or not password:
         st.error("Please enter both username and password")
     else:
+        # class that handles requests to your backend
         api = APIClient()
         result = api.login(username, password)
         
+        #check if login was successful
         if "access_token" in result:
+            #Stores the access token in Streamlit session state
             st.session_state["token"] = result["access_token"]
             st.session_state["username"] = result.get("username", username) # Store username if available or input
             # Try to get user info to confirm
