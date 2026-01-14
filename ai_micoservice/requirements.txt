@@ -1,0 +1,16 @@
+fastapi
+uvicorn
+psycopg2-binary
+sentence-transformers
+PyPDF2
+groq
+celery
+redis
+pymupdf
+python-multipart
+mnemonic
+python-jose[cryptography]     
+passlib[bcrypt]
+duckduckgo-search
+python-pptx
+sqlalchemy

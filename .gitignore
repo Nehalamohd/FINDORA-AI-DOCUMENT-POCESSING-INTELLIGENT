@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+*.log
+*_error.txt
+api_debug.txt
+full_logs.txt
+logs.txt
+*.log
+# Test scripts that might contain secrets
+ai_micoservice/test_model_ids.py
+ai_micoservice/test_vision_model.py
