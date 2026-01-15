@@ -3,9 +3,9 @@ name: CI
 #used to tell the GitHub when to run the workflow
 on:
   push:
-    branches: [ "main", "my-feature-branch" ]
+    branches: [ "main", "my-feature-branch", "clean-sync-v1" ]
   pull_request:
-    branches: [ "main", "my-feature-branch" ]
+    branches: [ "main", "my-feature-branch", "clean-sync-v1" ]
 
 #actual tasks to perform 
 #1.linting the code
