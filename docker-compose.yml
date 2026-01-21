@@ -44,6 +44,7 @@ services:
         condition: service_healthy
     volumes:
       - ./ai_micoservice/app:/app/app
+      - ./ai_micoservice/tests:/app/tests
       - temp_data:/tmp
 
   worker:
@@ -61,6 +62,7 @@ services:
         condition: service_healthy
     volumes:
       - ./ai_micoservice/app:/app/app
+      - ./ai_micoservice/tests:/app/tests
       - temp_data:/tmp
 
   frontend:
