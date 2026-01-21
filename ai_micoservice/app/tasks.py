@@ -24,29 +24,32 @@ def publish_update(task_id: str, status: str, message: str = "", filename: str =
     logger.debug(f"Publishing update for task {task_id}: {status} - {message}")
     redis_client.publish("task_updates", json.dumps(data))
 
+#to process pdf synchronously
 @celery_app.task(name="process_pdf_page_task")
 def process_pdf_page_task(document_id: int, page_no: int, file_path: str):
     return process_pdf_page(document_id, page_no, file_path)
 
+#for ppt
 @celery_app.task(name="process_pptx_slide_task")
 def process_pptx_slide_task(document_id: int, slide_no: int, slide_text: str):
     return process_pptx_slide(document_id, slide_no, slide_text)
 
+#for any document processing task in parallel
 @celery_app.task(bind=True, name="process_document")
 def process_document_task(self, file_path: str, filename: str, flow_id: str, x_username: str):
-    """
-    Unified task for processing documents (PDF, PPTX) in parallel.
-    """
+#celery task id
     task_id = self.request.id
     try:
+        #file extension
         ext = os.path.splitext(filename)[1].lower()
         logger.info(f"Processing task {task_id} for file {filename}")
+        #report starting to ui
         publish_update(task_id, "processing", f"Initializing {ext.upper()} parallel analysis...", filename)
         
         from app.database import SessionLocal
         from app.models import Document
         db = SessionLocal()
-        
+        #pdf type
         if ext == ".pdf":
             # 1. Register document and get total pages
             pdf_doc = fitz.open(file_path)
@@ -65,7 +68,7 @@ def process_document_task(self, file_path: str, filename: str, flow_id: str, x_u
             # 2. Spawn parallel tasks
             job = group(process_pdf_page_task.s(document_id, p, file_path) for p in range(1, total_pages + 1))
             result = job.apply_async()
-            result.get() 
+            result.get() #wait for completion
 
             db = SessionLocal()
             doc = db.query(Document).get(document_id)

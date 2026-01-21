@@ -1,0 +1,13 @@
+﻿findora_api  |     return _bootstrap._gcd_import(name[level:], package, level)
+findora_api  |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+findora_api  |   File "<frozen importlib._bootstrap>", line 1204, in _gcd_import
+findora_api  |   File "<frozen importlib._bootstrap>", line 1176, in _find_and_load
+findora_api  |   File "<frozen importlib._bootstrap>", line 1147, in _find_and_load_unlocked
+findora_api  |   File "<frozen importlib._bootstrap>", line 690, in _load_unlocked
+findora_api  |   File "<frozen importlib._bootstrap_external>", line 940, in exec_module
+findora_api  |   File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed
+findora_api  |   File "/app/app/main.py", line 15, in <module>
+findora_api  |     from app.llm import generate_answer, generate_answer_stream
+findora_api  |   File "/app/app/llm.py", line 9
+findora_api  |     logger.debug(f"Calling LLM ({model}) for generation")
+findora_api  | IndentationError: unexpected indent

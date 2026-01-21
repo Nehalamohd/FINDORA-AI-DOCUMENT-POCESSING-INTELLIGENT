@@ -3,6 +3,7 @@ from app.models import Page, Document
 from app.llm import generate_answer
 from app.logger import logger
 
+#to interact with documents for review purposes
 class DocumentReviewer:
     def __init__(self, db_session=None):
         self.db = db_session or SessionLocal()
@@ -22,7 +23,9 @@ class DocumentReviewer:
         finally:
             if not self.db:
                 self.db.close()
-
+#returns review of document in flow, with suggestions
+#sends content to llm for review
+#returns structured review
     def review_document(self, flow_id: str):
         logger.info(f"Starting document review for flow: {flow_id}")
         content = self.get_document_content(flow_id)

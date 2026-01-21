@@ -5,8 +5,9 @@ from app.logger import logger
 
 client = Groq(api_key=GROQ_API_KEY)  
 
-# ... (generate_answer remains same or slightly improved)
+#for backend , generating full answers from LLM
 def generate_answer(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
+    #used for which model to call
     logger.debug(f"Calling LLM ({model}) for generation")
     response = client.chat.completions.create(
         model=model,
@@ -19,6 +20,7 @@ def generate_answer(prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
     logger.info(f"LLM generation successful ({model})")
     return response.choices[0].message.content
 
+#for streaming partial answers from LLM
 def generate_answer_stream(prompt: str, model: str = "llama-3.3-70b-versatile"):
     stream = client.chat.completions.create(
         model=model,

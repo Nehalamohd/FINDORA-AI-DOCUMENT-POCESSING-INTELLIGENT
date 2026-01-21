@@ -14,3 +14,11 @@ passlib[bcrypt]
 duckduckgo-search
 python-pptx
 sqlalchemy
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
+torchaudio
+pytest
+pytest-mock
+httpx
+pytest-cov

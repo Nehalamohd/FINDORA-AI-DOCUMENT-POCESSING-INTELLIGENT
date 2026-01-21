@@ -48,11 +48,12 @@ def process_pdf_page(document_id: int, page_no: int, file_path: str):
     db = SessionLocal()
     try:
         # 1. Try Direct Extraction with fitz
+        #open>page no:>extract text>close
         doc = fitz.open(file_path)
         page_obj = doc[page_no - 1]
         extracted_text = page_obj.get_text().strip()
         doc.close()
-
+#<50 means mostly images or scanned
         # 2. Fallback to Vision if text is too sparse (e.g., a scan or image-only plan)
         if len(extracted_text) < 50:
             logger.info(f"Page {page_no}: Sparse text ({len(extracted_text)} chars). Falling back to Vision...")

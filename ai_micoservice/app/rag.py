@@ -72,7 +72,7 @@ def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
         ]
     finally:
         db.close()
-
+#for fetching first n chunks of a flow wen user asks for overview
 def get_first_chunks(flow_id: str, limit: int = 10):
     """
     Force-retrieves the first N chunks of a flow, regardless of similarity.
@@ -99,6 +99,7 @@ def get_first_chunks(flow_id: str, limit: int = 10):
 
 def build_prompt(context_chunks: list[dict], chat_history: list[dict], question: str, web_results: list[str] = None):
     # Prepare Document Context with metadata
+    #text from chunks with filename and page no
     doc_context_parts = []
     for chunk in context_chunks:
         filename = chunk.get("filename", "Unknown")
@@ -107,11 +108,12 @@ def build_prompt(context_chunks: list[dict], chat_history: list[dict], question:
     
     doc_context = "\n\n".join(doc_context_parts) if doc_context_parts else ""
     
-    # Prepare Web Context
+    # Prepare Web Context search results
+
     web_context = ""
     if web_results:
         web_context = "\n\n".join(web_results)
-    
+    #chat history formatting
     history = "\n".join([f"{m['role']}: {m['content']}" for m in chat_history])
     
     # Determine if web search was truly active

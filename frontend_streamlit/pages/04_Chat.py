@@ -91,6 +91,10 @@ if prompt := st.chat_input("Ask a question about your documents..."):
                             except:
                                 yield text_chunk
                             first_chunk = False
+                        elif text_chunk.startswith("__ERROR__:"):
+                            error_msg = text_chunk.replace("__ERROR__:", "")
+                            st.error(f"Stream Error: {error_msg}")
+                            return
                         else:
                             yield text_chunk
             

@@ -84,6 +84,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
+    #record login attempt in logs
     logger.info(f"User login attempt: {form_data.username}")
     #frontend receives this token
     return {"access_token": access_token, "token_type": "bearer"}
@@ -103,6 +104,7 @@ async def register_user(username: str = Form(...), password: str = Form(...), em
         raise HTTPException(status_code=400, detail="User already exists")
     
     # hashes the password before storing
+    #to log new user registration
     logger.info(f"New user registration: {username}")
     password_hash = get_password_hash(password)
     
@@ -393,7 +395,7 @@ async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: 
     logger.info(f"LLM generated answer for session {session_id}. Answer length: {len(answer)} characters.")
 
     save_message(session_id, "user", message)
-    save_message(session_id, "assistant", answer, context=context)
+    save_message(session_id, "assistant", answer)
     logger.debug(f"Messages saved for session {session_id}.")
 
     return {"session_id": session_id, "answer": answer, "flow_id": flow_id, "sources": context}
@@ -469,18 +471,23 @@ async def chat_stream(
     logger.debug(f"User message saved for session {session_id} (streaming).")
 
     async def event_generator():
-        # First yield the sources as a specific line
-        sources_json = json.dumps(context)
-        yield f"__SOURCES__:{sources_json}\n"
-        
-        full_response = ""
-        # Groq streaming is synchronous in this context, but we yield it
-        for chunk in generate_answer_stream(prompt, model=model):
-            full_response += chunk
-            yield chunk
-        # Save assistant message after stream finishes
-        save_message(session_id, "assistant", full_response, context=context)
-        logger.info(f"LLM streaming answer completed and saved for session {session_id}. Answer length: {len(full_response)} characters.")
+        try:
+            # First yield the sources as a specific line
+            sources_json = json.dumps(context)
+            yield f"__SOURCES__:{sources_json}\n"
+            
+            full_response = ""
+            # Groq streaming is synchronous in this context, but we yield it
+            for chunk in generate_answer_stream(prompt, model=model):
+                full_response += chunk
+                yield chunk
+            # Save assistant message after stream finishes
+            save_message(session_id, "assistant", full_response)
+            logger.info(f"LLM streaming answer completed and saved for session {session_id}. Answer length: {len(full_response)} characters.")
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error during streaming generation: {error_msg}")
+            yield f"__ERROR__:{error_msg}"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
