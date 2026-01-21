@@ -67,7 +67,9 @@ def test_generate_answer_stream_failure(mock_client):
         
         stream = generate_answer_stream("Test Prompt")
         chunks = list(stream)
-        assert "__ERROR__:Stream Error" in chunks
+        # Should yield the error tag
+        assert len(chunks) == 1
+        assert "__ERROR__:Stream Error" in chunks[0]
     except Exception as e:
         logger.error(f"test_generate_answer_stream_failure failed: {e}")
         pytest.fail(f"Test failed: {e}")

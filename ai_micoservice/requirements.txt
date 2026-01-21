@@ -22,3 +22,5 @@ pytest
 pytest-mock
 httpx
 pytest-cov
+pytest-asyncio
+anyio
