@@ -1,3 +1,6 @@
+"""
+Utility to list available Groq models for the service.
+"""
 import os
 import sys
 # Set up path to allow imports from app
@@ -9,6 +12,9 @@ from app.config import GROQ_API_KEY
 client = Groq(api_key=GROQ_API_KEY)
 
 def list_models():
+    """
+    Queries the Groq API for available models and prints their IDs.
+    """
     try:
         models = client.models.list()
         print("Available Models:")

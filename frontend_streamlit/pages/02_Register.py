@@ -1,6 +1,12 @@
+"""
+Registration page for new users.
+"""
 import streamlit as st
 import sys
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,12 +30,18 @@ if st.button("Register"):
     elif password != confirm_password:
         st.error("Passwords do not match")
     else:
-        #talks to the backend API to register the user
-        api = APIClient()
-        #Sends registration details to backend
-        result = api.register(username, password, email)
-        
-        if "user_id" in result:
-            st.success("Registration successful! Please go to the **Login** page.")
-        else:
-            st.error(f"Registration failed: {result.get('error', 'Unknown error')}")
+        try:
+            #talks to the backend API to register the user
+            api = APIClient()
+            #Sends registration details to backend
+            result = api.register(username, password, email)
+            
+            if "user_id" in result:
+                logger.info(f"User registration successful: {username}")
+                st.success("Registration successful! Please go to the **Login** page.")
+            else:
+                logger.error(f"User registration failed for {username}: {result.get('error', 'Unknown error')}")
+                st.error(f"Registration failed: {result.get('error', 'Unknown error')}")
+        except Exception as e:
+            logger.error(f"Unexpected error during registration for {username}: {str(e)}")
+            st.error("An error occurred. Please check your connection and try again.")

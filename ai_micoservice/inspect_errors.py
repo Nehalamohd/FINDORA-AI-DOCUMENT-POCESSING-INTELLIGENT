@@ -1,3 +1,6 @@
+"""
+Tool to inspect document processing errors in the database.
+"""
 import logging
 import sys
 import os
@@ -10,6 +13,9 @@ from app.models import Flow, Document, Chunk, Embedding, User
 from sqlalchemy import func
 
 def inspect_data():
+    """
+    Queries the database for failed documents and prints their error messages.
+    """
     db = SessionLocal()
     try:
         print("\n--- Failed Documents Analysis ---")

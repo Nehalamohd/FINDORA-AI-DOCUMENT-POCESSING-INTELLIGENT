@@ -1,3 +1,6 @@
+"""
+Database migration and schema management for the Findora AI service.
+"""
 #Create and  updates and changes to database schema
 import psycopg2
 from app.config import DB_CONFIG
@@ -5,6 +8,9 @@ from app.config import DB_CONFIG
 #Checks whether required tables exist
 #If they don’t exist, it creates them
 def update_database():
+    """
+    Connects to PostgreSQL and ensures all required database tables and triggers exist.
+    """
     conn = psycopg2.connect(**DB_CONFIG)
     cur = conn.cursor()
     

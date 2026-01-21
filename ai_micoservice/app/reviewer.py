@@ -1,3 +1,6 @@
+"""
+Document Reviewer module for analyzing flow content and providing suggestions.
+"""
 from app.database import SessionLocal
 from app.models import Page, Document
 from app.llm import generate_answer
@@ -5,6 +8,9 @@ from app.logger import logger
 
 #to interact with documents for review purposes
 class DocumentReviewer:
+    """
+    Handles automated AI-based review of all documents within a flow.
+    """
     def __init__(self, db_session=None):
         self.db = db_session or SessionLocal()
 
@@ -20,6 +26,9 @@ class DocumentReviewer:
                 .all()
             )
             return "\n".join([p.content for p in pages])
+        except Exception as e:
+            logger.error(f"Error retrieving flow content for review: {str(e)}")
+            return ""
         finally:
             if not self.db:
                 self.db.close()
@@ -27,6 +36,10 @@ class DocumentReviewer:
 #sends content to llm for review
 #returns structured review
     def review_document(self, flow_id: str):
+        """
+        Generates a comprehensive AI-based review report for all documents in a flow.
+        Provides suggestions for improvements, identifies gaps, and proposes new ideas.
+        """
         logger.info(f"Starting document review for flow: {flow_id}")
         content = self.get_document_content(flow_id)
         if not content:
@@ -61,6 +74,10 @@ class DocumentReviewer:
         [Brief justification for the score]
         """
         
-        review_text = generate_answer(prompt)
-        logger.info(f"Document review completed for flow: {flow_id}")
-        return {"review": review_text}
+        try:
+            review_text = generate_answer(prompt)
+            logger.info(f"Document review completed for flow: {flow_id}")
+            return {"review": review_text}
+        except Exception as e:
+            logger.error(f"Failed to generate review for flow {flow_id}: {str(e)}")
+            return {"error": f"Review generation failed: {str(e)}"}

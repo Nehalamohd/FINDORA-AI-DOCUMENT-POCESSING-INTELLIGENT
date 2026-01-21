@@ -1,9 +1,16 @@
+"""
+Logging configuration for the Findora AI service.
+Sets up console and file handlers with a standardized format.
+"""
 import logging
 import sys
 import os
 
 # Configure logging
 def setup_logging():
+    """
+    Initializes and configures a custom logger for the application.
+    """
     # Create a custom logger
     logger = logging.getLogger("findora_ai")
     
@@ -28,10 +35,15 @@ def setup_logging():
 
     # to save logs to a file
     # using a path that is likely to be mapped in Docker
-    log_path = "app.log"
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
+    try:
+        log_path = "app.log"
+        file_handler = logging.FileHandler(log_path)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except Exception as e:
+        # If file logging fails, we still have console logging
+        # We use print here because the logger itself is still being configured
+        print(f"WARNING: Failed to initialize file logging: {str(e)}", file=sys.stderr)
 
     return logger
 

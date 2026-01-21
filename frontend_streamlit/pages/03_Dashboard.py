@@ -1,6 +1,12 @@
+"""
+Dashboard page for viewing and creating flows, and uploading document
+"""
 import streamlit as st
 import sys
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -24,12 +30,17 @@ with st.expander("Create New Flow / Upload Document", expanded=True):
         new_flow_name = st.text_input("Flow Name")
         if st.button("Create Empty Flow"):
             if new_flow_name:
-                res = api.create_flow(new_flow_name)
-                if "flow_id" in res:
-                    st.success(f"Flow '{res['name']}' created!")
-                    st.rerun()
-                else:
-                    st.error("Failed to create flow")
+                try:
+                    res = api.create_flow(new_flow_name)
+                    if "flow_id" in res:
+                        logger.info(f"Flow created: {res['name']} (ID: {res['flow_id']}) by {st.session_state.get('username')}")
+                        st.success(f"Flow '{res['name']}' created!")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to create flow: {res.get('error', 'Unknown error')}")
+                except Exception as e:
+                    logger.error(f"UI Error during flow creation: {str(e)}")
+                    st.error("A technical error occurred while creating the flow.")
     
     with col2:
         st.subheader("Upload Document")
@@ -39,19 +50,30 @@ with st.expander("Create New Flow / Upload Document", expanded=True):
         if st.button("Upload & Process"):
             if uploaded_file:
                 with st.spinner("Uploading and processing..."):
-                    res = api.upload_document(uploaded_file.getvalue(), uploaded_file.name, upload_flow_name)
-                    if "task_id" in res:
-                        st.success(f"File uploaded! Task ID: {res['task_id']}")
-                        st.info("Processing started. You can check status or go to chat.")
-                    else:
-                        st.error(f"Upload failed: {res.get('error')}")
+                    try:
+                        res = api.upload_document(uploaded_file.getvalue(), uploaded_file.name, upload_flow_name)
+                        if "task_id" in res:
+                            logger.info(f"Document upload initiated: {uploaded_file.name} (Task: {res['task_id']})")
+                            st.success(f"File uploaded! Task ID: {res['task_id']}")
+                            st.info("Processing started. You can check status or go to chat.")
+                        else:
+                            logger.error(f"Document upload failed for {uploaded_file.name}: {res.get('error')}")
+                            st.error(f"Upload failed: {res.get('error')}")
+                    except Exception as e:
+                        logger.error(f"UI Error during document upload: {str(e)}")
+                        st.error("An error occurred during the upload process.")
 
 st.divider()
 
 # --- List Flows ---
 st.subheader("Your Flows")
 
-flows = api.get_my_flows()
+try:
+    flows = api.get_my_flows()
+except Exception as e:
+    logger.error(f"Failed to retrieve flows: {str(e)}")
+    st.error("Could not load your flows. Please refresh the page.")
+    flows = []
 
 if not flows:
     st.info("No flows found. Create one above!")
@@ -64,9 +86,14 @@ else:
             st.caption(flow['created_at'])
         with col3:
             if st.button("Chat", key=flow['flow_id']):
-                st.session_state["current_flow_id"] = flow['flow_id']
-                st.session_state["current_flow_name"] = flow['name']
-                st.switch_page("pages/04_Chat.py")
+                try:
+                    logger.debug(f"User {st.session_state.get('username')} entered chat for flow: {flow['name']}")
+                    st.session_state["current_flow_id"] = flow['flow_id']
+                    st.session_state["current_flow_name"] = flow['name']
+                    st.switch_page("pages/04_Chat.py")
+                except Exception as e:
+                    logger.error(f"Failed to switch to chat page: {str(e)}")
+                    st.error("Could not open chat. Please try again.")
 #When Chat button is clicked:
 #Saves selected flow info in session state
 #Switches to the Chat page

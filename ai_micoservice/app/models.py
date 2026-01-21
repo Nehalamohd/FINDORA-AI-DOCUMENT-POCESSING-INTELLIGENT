@@ -1,3 +1,7 @@
+"""
+SQLAlchemy models for the Findora AI service database.
+Defines tables for Users, Flows, Documents, Pages, Chunks, and more.
+"""
 #interact with the db easily using orm
 #uses tables defined in models.py
 from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, Float, Boolean, UUID, Enum as SQLEnum
@@ -9,6 +13,9 @@ import uuid
 Base = declarative_base()
 
 class User(Base):
+    """
+    User model for storing registration and login details.
+    """
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -21,6 +28,9 @@ class User(Base):
     flows = relationship("Flow", back_populates="user", cascade="all, delete-orphan")
 
 class Flow(Base):
+    """
+    Flow model representing a logical grouping of documents and chat sessions.
+    """
     __tablename__ = "flows"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -35,6 +45,9 @@ class Flow(Base):
     golden_qa = relationship("GoldenQA", back_populates="flow", cascade="all, delete-orphan")
 
 class Document(Base):
+    """
+    Document model for storing metadata about uploaded PDF or PPTX files.
+    """
     __tablename__ = "documents"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

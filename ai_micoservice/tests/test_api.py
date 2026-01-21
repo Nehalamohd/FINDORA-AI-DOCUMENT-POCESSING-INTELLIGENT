@@ -73,7 +73,8 @@ def test_get_my_flows(override_db):
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         
         mock_flow = Flow(name="My Flow", created_at=uuid.uuid1().hex[:8])
-        mock_db.query().filter().all.return_value = [mock_flow]
+        # Churn through the chain: query().filter().order_by().all()
+        mock_db.query().filter().order_by().all.return_value = [mock_flow]
         
         headers = {"Authorization": "Bearer fake_token"}
         response = client.get("/flows/my-flows", headers=headers)

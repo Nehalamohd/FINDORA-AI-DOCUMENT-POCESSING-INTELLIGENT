@@ -1,3 +1,7 @@
+"""
+Celery task definitions for background processing of documents.
+Includes parallel processing of PDF and PPTX files.
+"""
 from app.celery_app import celery_app
 from app.pdf_ingest import ingest_pdf, process_pdf_page
 from app.pptx_ingest import ingest_pptx, process_pptx_slide
@@ -14,6 +18,15 @@ redis_client = redis.from_url(REDIS_URL)
 
 # publishes the status of a task to Redis channel
 def publish_update(task_id: str, status: str, message: str = "", filename: str = ""):
+    """
+    Publishes real-time task status updates to a Redis channel.
+    
+    Args:
+        task_id (str): The unique ID of the task.
+        status (str): Current status (e.g., 'processing', 'completed', 'failed').
+        message (str, optional): A descriptive message for the user.
+        filename (str, optional): The name of the file being processed.
+    """
     data = {
         "task_id": task_id,
         "status": status,
@@ -22,21 +35,59 @@ def publish_update(task_id: str, status: str, message: str = "", filename: str =
     }
     #to show live progress on the dashboard
     logger.debug(f"Publishing update for task {task_id}: {status} - {message}")
-    redis_client.publish("task_updates", json.dumps(data))
+    try:
+        redis_client.publish("task_updates", json.dumps(data))
+    except Exception as e:
+        logger.error(f"Failed to publish Redis update for task {task_id}: {str(e)}")
 
 #to process pdf synchronously
 @celery_app.task(name="process_pdf_page_task")
 def process_pdf_page_task(document_id: int, page_no: int, file_path: str):
+    """
+    Celery task to process a single PDF page.
+    
+    Args:
+        document_id (int): Database ID of the document.
+        page_no (int): The page number to process.
+        file_path (str): Absolute path to the PDF file.
+        
+    Returns:
+        int: The ID of the created Page record.
+    """
     return process_pdf_page(document_id, page_no, file_path)
 
 #for ppt
 @celery_app.task(name="process_pptx_slide_task")
 def process_pptx_slide_task(document_id: int, slide_no: int, slide_text: str):
+    """
+    Celery task to process a single PPTX slide.
+    
+    Args:
+        document_id (int): Database ID of the document.
+        slide_no (int): The slide number to process.
+        slide_text (str): The raw text extracted from the slide.
+        
+    Returns:
+        int: The ID of the created Page record.
+    """
     return process_pptx_slide(document_id, slide_no, slide_text)
 
 #for any document processing task in parallel
 @celery_app.task(bind=True, name="process_document")
 def process_document_task(self, file_path: str, filename: str, flow_id: str, x_username: str):
+    """
+    High-level Celery task that manages the parallel processing of a document.
+    Dispatches sub-tasks for each page/slide and updates completion status.
+    
+    Args:
+        file_path (str): Path to the uploaded file.
+        filename (str): Name of the file.
+        flow_id (str): UUID of the flow the document belongs to.
+        x_username (str): Username of the owner.
+        
+    Returns:
+        dict: Completion metadata including status and document ID.
+    """
 #celery task id
     task_id = self.request.id
     try:
@@ -49,8 +100,8 @@ def process_document_task(self, file_path: str, filename: str, flow_id: str, x_u
         from app.database import SessionLocal
         from app.models import Document
         db = SessionLocal()
-        #pdf type
         if ext == ".pdf":
+            logger.info(f"Initiating PDF parallel analysis for document: {filename} in flow: {flow_id}")
             # 1. Register document and get total pages
             pdf_doc = fitz.open(file_path)
             total_pages = len(pdf_doc)
@@ -64,6 +115,7 @@ def process_document_task(self, file_path: str, filename: str, flow_id: str, x_u
             db.close()
 
             publish_update(task_id, "processing", f"Processing {total_pages} pages in parallel...", filename)
+            logger.debug(f"Spawning {total_pages} parallel tasks for PDF: {filename}")
 
             # 2. Spawn parallel tasks
             job = group(process_pdf_page_task.s(document_id, p, file_path) for p in range(1, total_pages + 1))
@@ -79,6 +131,7 @@ def process_document_task(self, file_path: str, filename: str, flow_id: str, x_u
             
         elif ext in [".pptx", ".ppt"]:
             from app.pptx_ingest import extract_text_from_pptx
+            logger.info(f"Initiating PPTX parallel analysis for document: {filename} in flow: {flow_id}")
             
             doc = Document(filename=filename, file_path=file_path, file_type="pptx", status="processing", task_id=task_id, flow_id=flow_id)
             db.add(doc)
@@ -89,6 +142,7 @@ def process_document_task(self, file_path: str, filename: str, flow_id: str, x_u
 
             slides = list(extract_text_from_pptx(file_path))
             publish_update(task_id, "processing", f"Processing {len(slides)} slides in parallel...", filename)
+            logger.debug(f"Spawning {len(slides)} parallel tasks for PPTX: {filename}")
 
             # Spawn parallel tasks for slides
             job = group(process_pptx_slide_task.s(document_id, s_no, s_text) for s_no, s_text in slides)

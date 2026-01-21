@@ -1,3 +1,6 @@
+"""
+Simple script to trace database connection issues and print detailed stack traces.
+"""
 import traceback
 import sys
 from sqlalchemy import create_engine, text

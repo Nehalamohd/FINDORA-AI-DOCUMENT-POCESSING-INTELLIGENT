@@ -1,3 +1,6 @@
+"""
+Comprehensive data inspection script for users, flows, documents, and system statistics.
+"""
 import logging
 import sys
 import os
@@ -10,6 +13,9 @@ from app.models import Flow, Document, Chunk, Embedding, User
 from sqlalchemy import func
 
 def inspect_data():
+    """
+    Queries the database for high-level entity counts and relationships (Users, Flows, Docs).
+    """
     db = SessionLocal()
     try:
         print("\n--- Users ---")

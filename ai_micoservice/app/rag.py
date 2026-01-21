@@ -1,10 +1,34 @@
+"""
+RAG (Retrieval-Augmented Generation) core logic including hybrid search.
+"""
 from app.embedding import embed
 from app.database import SessionLocal
 from sqlalchemy import text
+from app.logger import logger
 
 def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
+    """
+    Retrieves most relevant document chunks using hybrid search (semantic + keyword).
+    
+    Args:
+        query (str): The search query.
+        top_k (int): Number of chunks to return.
+        flow_id (str): UUID of the flow to search within.
+        
+    Returns:
+        list[dict]: List of chunks with content and metadata.
+    """
     #create embedding for the query
-    q_emb = embed([query])[0]
+    logger.debug(f"Retrieving chunks for query: '{query[:50]}...' (flow_id: {flow_id})")
+    try:
+        embeddings = embed([query])
+        if not embeddings:
+            logger.warning(f"Failed to generate embedding for query: {query[:50]}")
+            return []
+        q_emb = embeddings[0]
+    except Exception as e:
+        logger.error(f"Error during query embedding: {str(e)}")
+        return []
     
     #create temp table for semantic and keyword search
     #chunk id tells which chunk matches the query
@@ -65,11 +89,15 @@ def retrieve_chunks(query: str, top_k=5, flow_id: str = None):
         }
         result = db.execute(text(sql), params)
         rows = result.fetchall()
+        logger.info(f"Hybrid search returned {len(rows)} chunks for query: '{query[:50]}...'")
         # Returns list of dicts with content, metadata, and score
         return [
             {"content": r[0], "filename": r[1], "page_number": r[2], "score": float(r[3])} 
             for r in rows
         ]
+    except Exception as e:
+        logger.error(f"Hybrid search failed for query '{query[:50]}': {str(e)}")
+        return []
     finally:
         db.close()
 #for fetching first n chunks of a flow wen user asks for overview
@@ -90,14 +118,21 @@ def get_first_chunks(flow_id: str, limit: int = 10):
     try:
         result = db.execute(text(sql), {"flow_id": flow_id, "limit": limit})
         rows = result.fetchall()
+        logger.info(f"Force-retrieved {len(rows)} chunks for flow: {flow_id}")
         return [
             {"content": r[0], "filename": r[1], "page_number": r[2], "score": float(r[3])} 
             for r in rows
         ]
+    except Exception as e:
+        logger.error(f"Failed to force-retrieve chunks for flow {flow_id}: {str(e)}")
+        return []
     finally:
         db.close()
 
 def build_prompt(context_chunks: list[dict], chat_history: list[dict], question: str, web_results: list[str] = None):
+    """
+    Constructs a detailed prompt for the LLM using retrieved context and history.
+    """
     # Prepare Document Context with metadata
     #text from chunks with filename and page no
     doc_context_parts = []
@@ -134,7 +169,7 @@ Your goal is to provide accurate, COMPREHENSIVE, and DETAILED answers using the 
 3. [CRITICAL] Do not say "I do not have information" if there is "Web Search Context" provided that can answer the question.
 4. ONLY mention "(Source: Web)" at the end of your answer if web results were the primary source.
 5. If the answer is found in the documents, prioritized it and do NOT mention the web.
-6. If both contexts are missing or truly irrelevant to the question, only then state you lack the information.
+6. If both contexts are missing or truly irrelevant to the question, you may use your internal knowledge to provide a helpful answer, but clearly state that the information is NOT from the provided documents.
 
 Chat History:
 {history}

@@ -1,3 +1,6 @@
+"""
+Script to check flow details and associated documents.
+"""
 import sys
 import os
 sys.path.append(os.getcwd())
@@ -7,6 +10,9 @@ from app.models import Document, Flow
 TARGET_FLOW_ID = "98aaec21-e9e3-4cfc-9310-df84b17e7a2e"
 
 def check_flow():
+    """
+    Queries and prints the status of documents associated with a specific TARGET_FLOW_ID.
+    """
     db = SessionLocal()
     print(f"Checking Flow: {TARGET_FLOW_ID}")
     docs = db.query(Document).filter(Document.flow_id == TARGET_FLOW_ID).all()

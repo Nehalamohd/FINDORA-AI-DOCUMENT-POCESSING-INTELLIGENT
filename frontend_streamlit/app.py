@@ -1,3 +1,7 @@
+"""
+Main entry point for the Findora AI Streamlit frontend.
+Handles routing between Login, Register, Dashboard, and About pages.
+"""
 import streamlit as st
 
 st.set_page_config(
@@ -8,11 +12,17 @@ st.set_page_config(
 
 st.title("🤖 Findora AI Assistant")
 
+import logging
+logger = logging.getLogger(__name__)
+
 if "token" not in st.session_state:
     st.info("👋 Welcome! Please **Login** or **Register** using the sidebar to continue.")
     
     if st.button("✨ Learn more about Findora AI"):
-        st.switch_page("pages/00_About_Findora.py")
+        try:
+            st.switch_page("pages/00_About_Findora.py")
+        except Exception as e:
+            logger.error(f"Navigation to About page failed: {str(e)}")
 
     st.markdown("""
     ### Features
@@ -26,7 +36,13 @@ else:
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🚀 Go to Dashboard"):
-            st.switch_page("pages/03_Dashboard.py")
+            try:
+                st.switch_page("pages/03_Dashboard.py")
+            except Exception as e:
+                logger.error(f"Navigation to Dashboard failed: {str(e)}")
     with col2:
         if st.button("🌟 About Findora AI"):
-            st.switch_page("pages/00_About_Findora.py")
+            try:
+                st.switch_page("pages/00_About_Findora.py")
+            except Exception as e:
+                logger.error(f"Navigation to About page failed: {str(e)}")

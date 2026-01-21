@@ -1,3 +1,6 @@
+"""
+Utility script to inspect recent chat messages and their associated flows/sessions.
+"""
 import sys
 import os
 sys.path.append(os.getcwd())
@@ -5,6 +8,9 @@ from app.database import SessionLocal
 from app.models import Message, Session, Flow
 
 def inspect_chats():
+    """
+    Queries the database for recent messages and prints them with flow and session info.
+    """
     db = SessionLocal()
     print("--- Recent Messages ---")
     msgs = db.query(Message).order_by(Message.created_at.desc()).limit(10).all()

@@ -1,7 +1,13 @@
+"""
+Utility to test the custom logging configuration and ensure logs are written to both console and file.
+"""
 from app.logger import logger
 import time
 
 def test_logging():
+    """
+    Generates logs at different levels to verify formatting and output handlers.
+    """
     print("--- Starting Logging Test ---")
     
     logger.info("This is an INFO message - it shows things are working normally.")

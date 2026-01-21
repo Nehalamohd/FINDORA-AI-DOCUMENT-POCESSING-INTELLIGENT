@@ -1,8 +1,14 @@
+"""
+Utility script for debugging the database schema and checking table existence.
+"""
 from app.database import engine
 from sqlalchemy import inspect
 
 #for development: check if tables exist
 def check_tables():
+    """
+    Inspects the database and prints the names of all existing tables.
+    """
     try:
         #inspect the database
         inspector = inspect(engine)

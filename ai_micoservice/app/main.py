@@ -1,3 +1,7 @@
+"""
+Central API orchestration file for the Findora AI microservice.
+Handles authentication, flow management, document upload, and chat.
+"""
 #for handling all incoming request
 #central api orchestration file
 import asyncio
@@ -44,6 +48,9 @@ app.add_middleware(
 redis_client = redis.from_url(REDIS_URL, decode_responses=True)
 
 class ConnectionManager:
+    """
+    Manages active WebSocket connections for real-time updates.
+    """
     def __init__(self):
         self.active_connections: list[WebSocket] = []
 
@@ -70,24 +77,33 @@ manager = ConnectionManager()
 #connect to db to verify user
 #async means handle many req at the same time
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == form_data.username).first()
-    
-#validate password
-    if not user or not verify_password(form_data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
+    """
+    Authenticates a user and returns a JWT access token.
+    """
+    try:
+        user = db.query(User).filter(User.username == form_data.username).first()
+        
+        #validate password
+        if not user or not verify_password(form_data.password, user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        #set token expiry
+        access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        access_token = create_access_token(
+            data={"sub": user.username}, expires_delta=access_token_expires
         )
-    #set token expiry
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
-    )
-    #record login attempt in logs
-    logger.info(f"User login attempt: {form_data.username}")
-    #frontend receives this token
-    return {"access_token": access_token, "token_type": "bearer"}
+        #record login attempt in logs
+        logger.info(f"User login attempt: {form_data.username}")
+        #frontend receives this token
+        return {"access_token": access_token, "token_type": "bearer"}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Login technical failure for {form_data.username}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error during login")
 
 #to register new users
 @app.post("/users/register")
@@ -96,35 +112,45 @@ async def register_user(username: str = Form(...), password: str = Form(...), em
     """
     Register a new user. Now requires a password.
     """
-    # Check if user exists if yes raise 400 error
-    user = db.query(User).filter(User.username == username).first()
-    #give the first matching user
-    if user:
-        logger.warning(f"Registration attempt for existing username: {username}")
-        raise HTTPException(status_code=400, detail="User already exists")
-    
-    # hashes the password before storing
-    #to log new user registration
-    logger.info(f"New user registration: {username}")
-    password_hash = get_password_hash(password)
-    
-    # insert new user to db
-    new_user = User(username=username, email=email, password_hash=password_hash)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    
-    logger.info(f"User '{username}' registered successfully with ID: {new_user.id}")
-    return {
-        "user_id": str(new_user.id),
-        "username": new_user.username,
-        "message": "User created successfully"
-    }
+    try:
+        # Check if user exists if yes raise 400 error
+        user = db.query(User).filter(User.username == username).first()
+        #give the first matching user
+        if user:
+            logger.warning(f"Registration attempt for existing username: {username}")
+            raise HTTPException(status_code=400, detail="User already exists")
+        
+        # hashes the password before storing
+        #to log new user registration
+        logger.info(f"New user registration: {username}")
+        password_hash = get_password_hash(password)
+        
+        # insert new user to db
+        new_user = User(username=username, email=email, password_hash=password_hash)
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        logger.info(f"User '{username}' registered successfully with ID: {new_user.id}")
+        return {
+            "user_id": str(new_user.id),
+            "username": new_user.username,
+            "message": "User created successfully"
+        }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Registration failed for {username}: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error during registration")
 
 #to display current user info
 @app.get("/users/me")
 #check if user is active 
 async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
+    """
+    Returns information about the currently authenticated user.
+    """
     logger.info(f"Fetching info for current user: {current_user.username}")
     return {
         "user_id": str(current_user.id),
@@ -137,25 +163,36 @@ async def get_current_user_info(current_user: User = Depends(get_current_active_
 
 @app.post("/flows/create")
 async def create_flow(name: str = Form(...), current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """
+    Creates a new workspace (flow) for the user.
+    """
     logger.info(f"User {current_user.username} attempting to create new flow: {name}")
-    # Create flow
-    #Flow is the model
-    flow = Flow(user_id=current_user.id, name=name)
-    db.add(flow)
-    db.commit()
-    db.refresh(flow)
-    
-    logger.info(f"Flow '{name}' created successfully with ID: {flow.id} for user {current_user.username}")
-    return {
-        "flow_id": str(flow.id),
-        "name": flow.name,
-        "created_at": str(flow.created_at),
-        "message": "Flow created successfully"
-    }
+    try:
+        # Create flow
+        #Flow is the model
+        flow = Flow(user_id=current_user.id, name=name)
+        db.add(flow)
+        db.commit()
+        db.refresh(flow)
+        
+        logger.info(f"Flow '{name}' created successfully with ID: {flow.id} for user {current_user.username}")
+        return {
+            "flow_id": str(flow.id),
+            "name": flow.name,
+            "created_at": str(flow.created_at),
+            "message": "Flow created successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to create flow '{name}' for {current_user.username}: {str(e)}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create flow")
 
 #display all flows for current user in desc order
 @app.get("/flows/my-flows")
 async def get_my_flows(current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """
+    Lists all flows owned by the current user.
+    """
     logger.info(f"Fetching flows for user: {current_user.username}")
     # Get all flows for this user
     flows = db.query(Flow).filter(Flow.user_id == current_user.id).order_by(Flow.created_at.desc()).all()
@@ -182,6 +219,9 @@ async def upload_document(
     current_user: User = Depends(get_current_active_user), 
     db: Session = Depends(get_db)
 ):
+    """
+    Uploads a document to a flow and triggers background processing.
+    """
     logger.info(f"User {current_user.username} attempting to upload document: {file.filename} to flow_id: {flow_id}")
     username = current_user.username
     user_id = current_user.id
@@ -283,6 +323,9 @@ async def get_task_status(task_id: str, current_user: User = Depends(get_current
 # WebSocket for Real-time task updates 
 @app.websocket("/ws/status")
 async def websocket_status(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time task status updates.
+    """
     await manager.connect(websocket)
     #check if redis has new messages
     pubsub = redis_client.pubsub()
@@ -350,10 +393,10 @@ async def chat(message: str = Form(...), flow_id: str = Form(None), session_id: 
         logger.info(f"DBSession {session_id} created for flow {flow_id}.")
 
     # to fetch chat history(previous messages)
-    history = get_chat_history(session_id)
+    history = get_chat_history(session_id, limit=3)
     logger.debug(f"Chat history retrieved for session {session_id}, {len(history)} messages.")
     # retrieve relevant chunks from documents in flow
-    context = retrieve_chunks(message, flow_id=flow_id)
+    context = retrieve_chunks(message, flow_id=flow_id, top_k=3)
     
     # Meta-keywords that should prioritize document context over web search
     meta_keywords = ["summarize", "summary", "review", "brief", "outline", "overview", "what is this", "tell me about this", "explain", "details", "elaborate"]
@@ -431,9 +474,9 @@ async def chat_stream(
         db.refresh(session)
         logger.info(f"New DBSession {session_id} created for flow {flow_id} (streaming).")
 
-    history = get_chat_history(session_id)
+    history = get_chat_history(session_id, limit=3)
     logger.debug(f"Chat history retrieved for session {session_id} (streaming), {len(history)} messages.")
-    context = retrieve_chunks(message, flow_id=flow_id)
+    context = retrieve_chunks(message, flow_id=flow_id, top_k=3)
 
     # Meta-keywords that should prioritize document context over web search
     meta_keywords = ["summarize", "summary", "review", "brief", "outline", "overview", "what is this", "tell me about this"]
@@ -545,6 +588,9 @@ async def auto_generate_golden(flow_id: str, count: int = 5, current_user: User 
 #to view all golden qna pairs for a flow
 @app.get("/flows/{flow_id}/golden")
 async def get_golden_qa(flow_id: str, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """
+    Returns all golden Q&A pairs associated with a flow.
+    """
     logger.info(f"User {current_user.username} fetching golden Q&A pairs for flow: {flow_id}")
     rows = db.query(GoldenQA).filter(GoldenQA.flow_id == flow_id).all()
     logger.debug(f"Retrieved {len(rows)} golden Q&A pairs for flow {flow_id}.")
@@ -556,55 +602,65 @@ async def get_golden_qa(flow_id: str, current_user: User = Depends(get_current_a
 #for evaluating the flow against golden qna pairs
 @app.post("/flows/{flow_id}/evaluate")
 async def run_evaluation(flow_id: str, current_user: User = Depends(get_current_active_user), db: Session = Depends(get_db)):
+    """
+    Runs an evaluation of the RAG pipeline using the golden Q&A pairs.
+    """
+    logger.info(f"User {current_user.username} starting evaluation for flow {flow_id}")
+    try:
+        # 1. Get Golden Pairs
+        golden_pairs = db.query(GoldenQA).filter(GoldenQA.flow_id == flow_id).all()
+                
+        if not golden_pairs:
+            raise HTTPException(status_code=400, detail="No golden Q&A pairs found for this flow. Please generate or add some first.")
 
-    # 1. Get Golden Pairs
-    golden_pairs = db.query(GoldenQA).filter(GoldenQA.flow_id == flow_id).all()
+        results = []
+        
+        #Loop through each golden Q&A row one by one
+        for pair in golden_pairs:
+            try:
+                question = pair.question
+                expected = pair.expected_answer
+                
+                # Call RAG Pipeline
+                context = retrieve_chunks(question, flow_id=flow_id)
+                
+                # Web Search Fallback
+                web_results_list = None
+                if not context:
+                     from app.search import web_search
+                     web_results_list = web_search(question)
+                
+                prompt = build_prompt(context_chunks=context, chat_history=[], question=question, web_results=web_results_list)
+                generated_answer = generate_answer(prompt)
+                
+                # Score it
+                eval_result = evaluate_answer(question, expected, generated_answer)
+                
+                # Save Evaluation to db
+                eval_record = DBEvaluation(
+                    golden_id=pair.id,
+                    generated_answer=generated_answer,
+                    similarity_score=eval_result["score"],
+                    judge_feedback=eval_result["feedback"]
+                )
+                db.add(eval_record)
+                db.commit()
+                       
+                results.append({
+                    "question": question,
+                    "generated_answer": generated_answer,
+                    "score": eval_result["score"],
+                    "feedback": eval_result["feedback"]
+                })
+            except Exception as item_e:
+                logger.error(f"Failed to evaluate golden pair {pair.id}: {str(item_e)}")
+                db.rollback()
+                continue
             
-    if not golden_pairs:
-        raise HTTPException(status_code=400, detail="No golden Q&A pairs found for this flow. Please generate or add some first.")
-
-    results = []
-    
-    #Loop through each golden Q&A row one by one
-    for pair in golden_pairs:
-        golden_id = str(pair.id)
-        question = pair.question
-        expected = pair.expected_answer
-        
-        # Call RAG Pipeline
-        # We simulate the chat logic directly to avoid HTTP overhead
-        context = retrieve_chunks(question, flow_id=flow_id)
-        
-        # Web Search Fallback (reuse logic from chat)
-        web_results_list = None
-        if not context:
-             # Basic web search call since async isn't needed here strictly, 
-             # but web_search is synchronous.
-             from app.search import web_search
-             web_results_list = web_search(question)
-        
-        prompt = build_prompt(context_chunks=context, chat_history=[], question=question, web_results=web_results_list)
-        generated_answer = generate_answer(prompt)
-        
-        # Score it
-        eval_result = evaluate_answer(question, expected, generated_answer)
-        
-        # Save Evaluation to db
-        eval_record = DBEvaluation(
-            golden_id=pair.id,
-            generated_answer=generated_answer,
-            similarity_score=eval_result["score"],
-            judge_feedback=eval_result["feedback"]
-        )
-        db.add(eval_record)
-        db.commit()
-         #store each result in a list to return later
-         # together       
-        results.append({
-            "question": question,
-            "generated_answer": generated_answer,
-            "score": eval_result["score"],
-            "feedback": eval_result["feedback"]
-        })
-        
-    return {"message": "Evaluation complete", "results": results}
+        logger.info(f"Evaluation completed for flow {flow_id}. Scored {len(results)} pairs.")
+        return {"message": "Evaluation complete", "results": results}
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Critical error during evaluation for flow {flow_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Evaluation failed due to a technical error")

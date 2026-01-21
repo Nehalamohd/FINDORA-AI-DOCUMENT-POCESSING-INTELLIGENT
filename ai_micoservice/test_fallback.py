@@ -1,7 +1,13 @@
+"""
+Integration test for verifying the web search fallback logic in the RAG pipeline.
+"""
 from app.rag import retrieve_chunks
 import uuid
 
 def test_fallback_logic():
+    """
+    Tests various query types to ensure correct fallback to web search or document context.
+    """
     print("--- Testing Web Search Fallback Logic ---")
     
     # Simulate a flow ID (you might need to replace this with a real one from your DB if you want to run it live)

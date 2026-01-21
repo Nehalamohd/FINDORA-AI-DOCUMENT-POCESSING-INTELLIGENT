@@ -1,3 +1,6 @@
+"""
+Script to verify document summarization retrieval and prompt building.
+"""
 import os
 import sys
 import uuid
@@ -11,6 +14,9 @@ from app.database import SessionLocal
 from app.models import Document
 
 def test_summarization_retrieval():
+    """
+    Main test function to verify retrieval and prompt building for document summarization.
+    """
     db = SessionLocal()
     try:
         # Get the latest document ID and flow ID

@@ -84,12 +84,19 @@ Findora AI is "Hardened" for production standards through a multi-layered testin
 2. Launch the backend: `cd ai_micoservice && uvicorn app.main:app`
 3. Launch the UI: `cd frontend_streamlit && streamlit run app.py`
 
-### Testing
-Run the audit-ready test suite:
+### Testing (Environment Specific)
+
+#### Local Development
 ```bash
 cd ai_micoservice
-$env:PYTHONPATH="."
-pytest -v tests/
+$env:PYTHONPATH="."  # PowerShell
+PYTHONPATH=. pytest -v tests/  # Bash/WSL
+```
+
+#### Production (EC2 / Docker)
+Run tests directly inside the running container to verify the production environment:
+```bash
+docker exec -it findora_api pytest -v tests/
 ```
 
 ---
@@ -127,9 +134,22 @@ cd flow_intelligence
 git pull origin clean-sync-v1
 ```
 
-If you are unsure of the branch name, check all remote branches:
+### 2. Update the Codebase
+... (previous content) ...
+
+#### ⚠️ Troubleshooting: "Local changes would be overwritten"
+If the `git pull` fails because of local changes on the EC2, run these commands to **discard those changes** and force-sync with the remote code:
+
 ```bash
-git branch -r
+# 1. Fetch latest updates
+git fetch origin clean-sync-v1
+
+# 2. Reset everything to match the GitHub branch exactly
+# WARNING: This deletes any local modifications on the server
+git reset --hard origin/clean-sync-v1
+
+# 3. Clean untracked files that are causing blocks
+git clean -fd
 ```
 
 ### 3. Deploy the Updates

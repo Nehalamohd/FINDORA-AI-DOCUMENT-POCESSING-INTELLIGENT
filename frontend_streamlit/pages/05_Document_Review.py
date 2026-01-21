@@ -1,6 +1,12 @@
+"""
+Streamlit page for displaying AI-generated document reviews and report downloads.
+"""
 import streamlit as st
 import sys
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,11 +33,17 @@ api = APIClient()
 
 if st.button("Generate/Refresh Review"):
     with st.spinner("Analyzing document content..."):
-        result = api.get_review(flow_id)
-        if "review" in result:
-            st.session_state[f"review_{flow_id}"] = result["review"]
-        else:
-            st.error(f"Error: {result.get('error', 'Failed to generate review')}")
+        try:
+            result = api.get_review(flow_id)
+            if "review" in result:
+                logger.info(f"Generated new document review for flow {flow_id}")
+                st.session_state[f"review_{flow_id}"] = result["review"]
+            else:
+                logger.error(f"Failed to generate review for flow {flow_id}: {result.get('error')}")
+                st.error(f"Error: {result.get('error', 'Failed to generate review')}")
+        except Exception as e:
+            logger.error(f"UI error during review generation for flow {flow_id}: {str(e)}")
+            st.error("A technical error occurred while generating the review.")
 
 # Display stored review if available
 review_content = st.session_state.get(f"review_{flow_id}")
@@ -41,13 +53,18 @@ if review_content:
     st.markdown(review_content)
     
     # Simple export option
-    st.download_button(
+    if st.download_button(
         label="Download Review Report",
         data=review_content,
         file_name=f"Review_{flow_name.replace(' ', '_')}.md",
         mime="text/markdown"
-    )
+    ):
+        logger.info(f"User {st.session_state.get('username')} downloaded review report for flow {flow_id}")
 
 st.sidebar.markdown("---")
 if st.sidebar.button("Back to Chat"):
-    st.switch_page("pages/04_Chat.py")
+    try:
+        st.switch_page("pages/04_Chat.py")
+    except Exception as e:
+        logger.error(f"Failed to switch to chat page: {str(e)}")
+        st.error("Navigation failed.")

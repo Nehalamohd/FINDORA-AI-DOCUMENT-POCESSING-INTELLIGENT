@@ -1,3 +1,6 @@
+"""
+About page providing information and features of the Findora AI Assistant.
+"""
 import streamlit as st
 import sys
 import os
@@ -162,8 +165,17 @@ with tech_col2:
     <span class="tech-pill">Redis Task Broker</span>
     """, unsafe_allow_html=True)
 
+import logging
+logger = logging.getLogger(__name__)
+
 st.sidebar.markdown("---")
 if st.sidebar.button("Go to Login"):
-    st.switch_page("app.py")
+    try:
+        st.switch_page("app.py")
+    except Exception as e:
+        logger.error(f"Navigation to app.py failed: {str(e)}")
 if st.sidebar.button("Go to Dashboard"):
-    st.switch_page("pages/03_Dashboard.py")
+    try:
+        st.switch_page("pages/03_Dashboard.py")
+    except Exception as e:
+        logger.error(f"Navigation to Dashboard failed: {str(e)}")

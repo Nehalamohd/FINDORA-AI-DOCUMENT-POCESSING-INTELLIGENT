@@ -1,3 +1,6 @@
+"""
+Authentication utilities for JWT issuance and validation.
+"""
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import Depends, HTTPException, status
@@ -19,13 +22,30 @@ pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
 
 def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+    """
+    Verifies a plain text password against a hashed version.
+    """
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        logger.error(f"Password verification technical failure: {str(e)}")
+        return False
 #for registering new users
 def get_password_hash(password):
-    return pwd_context.hash(password)
+    """
+    Hashes a password using PBKDF2-SHA256.
+    """
+    try:
+        return pwd_context.hash(password)
+    except Exception as e:
+        logger.error(f"Password hashing failure: {str(e)}")
+        raise e
 # for creating access tokens 
 #expiry time
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    """
+    Creates a JWT access token.
+    """
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -38,6 +58,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 #FastAPI automatically reads the Authorization
 #unauthorized access handling when authentication fails
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """
+    Validates token and returns current user from database.
+    """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -54,8 +77,14 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     except JWTError as e:
         logger.error(f"JWT validation failed: {str(e)}")
         raise credentials_exception
-    
-    user = db.query(User).filter(User.username == username).first()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+    except Exception as e:
+        logger.error(f"Database error during user token validation for '{username}': {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service temporarily unavailable",
+        )
     
     if user is None:
         logger.warning(f"Authenticated user '{username}' not found in database")

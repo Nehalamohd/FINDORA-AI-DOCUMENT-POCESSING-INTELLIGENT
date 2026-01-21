@@ -1,3 +1,6 @@
+"""
+Utility script for testing the vision model capabilities.
+"""
 import os
 import sys
 # Set up path to allow imports from app
@@ -13,6 +16,9 @@ client = Groq(api_key=GROQ_API_KEY)
 MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 def test_models():
+    """
+    Sends a sample 1x1 image to the vision model to verify API connectivity and response format.
+    """
     print(f"Testing vision on {MODEL}...")
     
     # 1x1 pixel transparent gif base64

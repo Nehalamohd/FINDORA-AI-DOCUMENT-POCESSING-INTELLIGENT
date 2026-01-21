@@ -1,3 +1,6 @@
+"""
+Script to test direct SQLAlchemy connection to the PostgreSQL database.
+"""
 from sqlalchemy import create_engine
 import os
 

@@ -10,10 +10,14 @@ celery_app = Celery(
     include=["app.tasks"]
 )
 # task and result is converted to json format
-celery_app.conf.update(
-    task_serializer="json",
-    accept_content=["json"],
-    result_serializer="json",
-    timezone="UTC",
-    enable_utc=True,
-)
+try:
+    celery_app.conf.update(
+        task_serializer="json",
+        accept_content=["json"],
+        result_serializer="json",
+        timezone="UTC",
+        enable_utc=True,
+    )
+except Exception as e:
+    from app.logger import logger
+    logger.error(f"Failed to update Celery configuration: {str(e)}")

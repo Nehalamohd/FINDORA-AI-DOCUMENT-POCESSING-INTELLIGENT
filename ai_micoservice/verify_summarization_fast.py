@@ -1,3 +1,6 @@
+"""
+Fast mock-based verification for document summarization retrieval logic.
+"""
 import os
 import sys
 import uuid
@@ -16,6 +19,9 @@ from app.database import SessionLocal
 from app.models import Document
 
 def test_summarization_retrieval():
+    """
+    Fast integration test using mocks to verify retrieval logic for document summarization.
+    """
     db = SessionLocal()
     try:
         # Get the latest document ID and flow ID
