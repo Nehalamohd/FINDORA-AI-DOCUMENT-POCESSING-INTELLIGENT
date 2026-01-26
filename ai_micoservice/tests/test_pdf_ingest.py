@@ -35,13 +35,24 @@ def test_extract_text_by_page(mock_reader):
 
 # --- Test Page Processing (Direct vs Vision) ---
 
+@patch("app.pdf_ingest.Page")
+@patch("app.pdf_ingest.Chunk")
 @patch("app.pdf_ingest.SessionLocal")
 @patch("app.pdf_ingest.fitz.open")
 @patch("app.pdf_ingest.embed")
-def test_process_pdf_page_direct_success(mock_embed, mock_fitz_open, mock_session_local):
+def test_process_pdf_page_direct_success(mock_embed, mock_fitz_open, mock_session_local, mock_chunk_cls, mock_page_cls):
     """Tests successful direct text extraction and saving."""
     mock_db = MagicMock()
     mock_session_local.return_value = mock_db
+
+    # Mock Model Instantiation
+    mock_page_instance = MagicMock()
+    mock_page_instance.id = 101
+    mock_page_cls.return_value = mock_page_instance
+
+    mock_chunk_instance = MagicMock()
+    mock_chunk_instance.id = 202
+    mock_chunk_cls.return_value = mock_chunk_instance
     
     # Mock Document and Page
     mock_doc = MagicMock()
@@ -64,14 +75,26 @@ def test_process_pdf_page_direct_success(mock_embed, mock_fitz_open, mock_sessio
     # Verify Embedding was inserted
     mock_db.execute.assert_called()
 
+@patch("app.pdf_ingest.Page")
+@patch("app.pdf_ingest.Chunk")
 @patch("app.pdf_ingest.SessionLocal")
 @patch("app.pdf_ingest.fitz.open")
 @patch("app.pdf_ingest.analyze_image")  # Mock Vision
 @patch("app.pdf_ingest.embed")
-def test_process_pdf_page_vision_fallback(mock_embed, mock_analyze, mock_fitz_open, mock_session_local):
+def test_process_pdf_page_vision_fallback(mock_embed, mock_analyze, mock_fitz_open, mock_session_local, mock_chunk_cls, mock_page_cls):
     """Tests fallback to vision when direct extraction yields sparse text."""
     mock_db = MagicMock()
     mock_session_local.return_value = mock_db
+
+    # Mock Model Instantiation
+    mock_page_instance = MagicMock()
+    mock_page_instance.id = 101
+    mock_page_cls.return_value = mock_page_instance
+    
+    # Mock Chunk Instantiation (though fallback might not chunk immediately, good to have)
+    mock_chunk_instance = MagicMock()
+    mock_chunk_instance.id = 202
+    mock_chunk_cls.return_value = mock_chunk_instance
     
     # Mock Document and Page for Extraction (Sparse)
     mock_doc = MagicMock()
@@ -102,13 +125,19 @@ def test_process_pdf_page_vision_fallback(mock_embed, mock_analyze, mock_fitz_op
 
 # --- Test Ingestion Orchestration ---
 
+@patch("app.pdf_ingest.Document")
 @patch("app.pdf_ingest.SessionLocal")
 @patch("app.pdf_ingest.fitz.open")
 @patch("app.pdf_ingest.process_pdf_page")
-def test_ingest_pdf_success(mock_process, mock_fitz_open, mock_session_local):
+def test_ingest_pdf_success(mock_process, mock_fitz_open, mock_session_local, mock_document_cls):
     """Verifies the ingestion orchestration loop."""
     mock_db = MagicMock()
     mock_session_local.return_value = mock_db
+
+    # Mock Document ID
+    mock_doc_instance = MagicMock()
+    mock_doc_instance.id = 303
+    mock_document_cls.return_value = mock_doc_instance
     
     # Mock PDF Page Count
     mock_doc = MagicMock()
