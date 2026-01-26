@@ -152,7 +152,6 @@ with tech_col1:
     st.markdown("""
     <span class="tech-pill">Groq LPU™ Inference</span>
     <span class="tech-pill">Llama 3.3 (70B)</span>
-    <span class="tech-pill">Mixtral 8x7B</span>
     <span class="tech-pill">Llama 4 Scout (Vision)</span>
     """, unsafe_allow_html=True)
 

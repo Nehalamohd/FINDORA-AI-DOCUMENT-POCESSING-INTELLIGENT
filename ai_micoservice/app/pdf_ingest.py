@@ -33,7 +33,18 @@ def extract_text_by_page(pdf_path: str):
 #render PDF pages as images
 #200 dpi
 def convert_pdf_to_base64_images(pdf_path: str):
-    """Converts each page of a PDF to a base64 encoded JPEG image at 200 DPI."""
+    """
+    Converts each page of a PDF to a base64 encoded JPEG image.
+
+    This is primarily used for Vision model processing when text extraction fails.
+    The images are rendered at 200 DPI for optimal OCR accuracy.
+
+    Args:
+        pdf_path (str): The absolute path to the PDF file.
+
+    Yields:
+        tuple: (page_number, base64_image_string)
+    """
     doc = fitz.open(pdf_path) #open the pdf file
     # 200 DPI calculation: 200 / 72 = 2.777...
     zoom = 200 / 72

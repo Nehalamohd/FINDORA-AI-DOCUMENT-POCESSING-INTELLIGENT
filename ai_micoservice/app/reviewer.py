@@ -32,13 +32,18 @@ class DocumentReviewer:
         finally:
             if not self.db:
                 self.db.close()
-#returns review of document in flow, with suggestions
-#sends content to llm for review
-#returns structured review
     def review_document(self, flow_id: str):
         """
         Generates a comprehensive AI-based review report for all documents in a flow.
-        Provides suggestions for improvements, identifies gaps, and proposes new ideas.
+        
+        This method aggregates specific document content, sends it to the LLM, 
+        and returns a structured critique covering improvements, gaps, and an innovation score.
+
+        Args:
+            flow_id (str): The unique identifier of the document flow to review.
+
+        Returns:
+            dict: A dictionary containing either the 'review' text or an 'error' message.
         """
         logger.info(f"Starting document review for flow: {flow_id}")
         content = self.get_document_content(flow_id)
